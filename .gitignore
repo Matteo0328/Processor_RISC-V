@@ -1,0 +1,24 @@
+# ModelSim
+sim/work/
+work/
+transcript
+*.wlf
+*.mpf
+*.mti
+modelsim.ini
+
+# Vivado
+.Xil/
+*.runs/
+*.cache/
+*.hw/
+*.ip_user_files/
+*.sim/
+*.jou
+*.log
+*.str
+*.bit
+*.bin
+*.dcp
+*.rpt
+*.hds

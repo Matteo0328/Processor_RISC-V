@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 
 module RF_tb;
-    localparam N_TEST = 100;
+    localparam N_TEST = 1000;
     localparam int BW = 8;
     localparam int DEPTH = 8;
 
@@ -41,6 +41,9 @@ module RF_tb;
     logic [BW-1:0] expected2;
 
     begin
+        if (DUT1.mem[0] !== '0) begin
+            $fatal(1, "HARDWARE VIOLATION: Internal register mem[0] was overwritten!");
+        end
         if (addr1 == 0 || chip_en == 0 )
             expected1 = '0;
         else
@@ -86,7 +89,7 @@ endtask
         read_addr_1 = '0;
         read_addr_2 = '0;
         write_addr = '0;
-
+  
         for (int i = 0; i < DEPTH; i++) begin
             expected_mem[i] = '0;
         end
@@ -111,10 +114,9 @@ endtask
                     for (int i = 0; i < DEPTH; i++) begin
                         check_read(i,i,1); 
                     end 
-                    @(posedge clk);
                 end
                 1: begin //standby test
-                    $display("[SPECIFIC TEST] Standby test");
+                    $display("[SPECIFIC TEST] Standby test");                  
                     rst_n = 1;
                     chip_en = 0;
                     @(posedge clk); #1;     
@@ -169,7 +171,7 @@ endtask
                     int rand_mode;
                     rand_mode = $urandom_range(0, 99);
 
-                    if (rand_mode < 5) begin //5% probability of random reset
+                    if (rand_mode < 1) begin //1% probability of random reset
                         $display("[RANDOM TEST] Triggering random Reset");
                         rst_n = 0;
                         chip_en = 1; 
@@ -184,7 +186,7 @@ endtask
                         end
                         @(posedge clk); 
                         
-                    end else if (rand_mode < 20) begin //15% probability of random Standby
+                    end else if (rand_mode < 5) begin //4% probability of random Standby
                         $display("[RANDOM TEST] Triggering random Standby");
                         rst_n = 1;
                         chip_en = 0; // Disable chip
@@ -201,7 +203,7 @@ endtask
                         // check_read will correctly expect 0 because chip_en = 0
                         check_read(read_addr_1, read_addr_2, 1); 
 
-                    end else begin //80% probability of normal read/write
+                    end else begin //95% probability of normal read/write
                         rst_n = 1;
                         chip_en = 1; 
 
@@ -222,5 +224,11 @@ endtask
                 end
             endcase
         end
+        $display("");
+        $display("=================================");
+        $display("TEST COMPLETE");
+        $display("=================================");
+
+        $stop;
     end
 endmodule

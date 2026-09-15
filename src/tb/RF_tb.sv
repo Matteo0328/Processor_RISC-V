@@ -1,0 +1,226 @@
+`timescale 1ns/1ps
+
+module RF_tb;
+    localparam N_TEST = 100;
+    localparam int BW = 8;
+    localparam int DEPTH = 8;
+
+    logic clk, rst_n;
+    logic [BW-1:0] data_in;
+    logic [$clog2(DEPTH)-1:0] read_addr_1, read_addr_2, write_addr;
+    logic write_en_n, chip_en;
+
+    logic [BW-1:0] data_out_1, data_out_2;
+
+    // Reference memory
+    logic [BW-1:0] expected_mem [0:DEPTH-1];
+
+    RF #(
+        .BW(BW),
+        .DEPTH(DEPTH)
+    ) DUT1 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .data_in(data_in),
+        .read_addr_1(read_addr_1), 
+        .read_addr_2(read_addr_2),
+        .write_addr(write_addr),
+        .write_en_n(write_en_n),
+        .chip_en(chip_en),
+        
+        .data_out_1(data_out_1), 
+        .data_out_2(data_out_2)
+    );
+
+  task check_read( //check if read = expected
+    input logic [$clog2(DEPTH)-1:0] addr1,
+    input logic [$clog2(DEPTH)-1:0] addr2,
+    input bit                       is_fatal = 1'b0 // 0: $error (default), 1: $fatal
+);
+    logic [BW-1:0] expected1;
+    logic [BW-1:0] expected2;
+
+    begin
+        if (addr1 == 0 || chip_en == 0 )
+            expected1 = '0;
+        else
+            expected1 = expected_mem[addr1];
+
+        if (addr2 == 0 || chip_en == 0)
+            expected2 = '0;
+        else
+            expected2 = expected_mem[addr2];
+
+        // Check read 1
+        if (data_out_1 != expected1) begin
+            if (is_fatal)
+                $fatal(1, "read1 addr=%0d DUT=%h EXPECTED=%h", addr1, data_out_1, expected1);
+            else
+                $error("read1 addr=%0d DUT=%h EXPECTED=%h", addr1, data_out_1, expected1);
+        end
+
+        // Check read 2
+        if (data_out_2 != expected2) begin
+            if (is_fatal)
+                $fatal(1, "read2 addr=%0d DUT=%h EXPECTED=%h", addr2, data_out_2, expected2);
+            else
+                $error("read2 addr=%0d DUT=%h EXPECTED=%h", addr2, data_out_2, expected2);
+        end
+    end
+endtask
+
+
+
+    initial begin //clk
+        clk = 0;
+        forever #5 clk = ~clk;
+    end
+
+    initial begin
+
+        rst_n = 1;
+        write_en_n = 1;
+        chip_en = 0;
+
+        data_in = '0;
+        read_addr_1 = '0;
+        read_addr_2 = '0;
+        write_addr = '0;
+
+        for (int i = 0; i < DEPTH; i++) begin
+            expected_mem[i] = '0;
+        end
+
+
+        $display("=================================");
+        $display("STARTING TEST-BENCH");
+        $display("=================================");
+        #12;
+        
+        for (int rep = 0; rep < N_TEST; rep ++) begin
+            case (rep)
+                0: begin //reset test
+                    $display("[SPECIFIC TEST] Reset test");
+                    rst_n = 0;
+                    chip_en = 1;
+                    for (int i = 0; i < DEPTH; i++) begin
+                        expected_mem[i] = '0;
+                    end 
+                    #1;
+                    //check the entire memory
+                    for (int i = 0; i < DEPTH; i++) begin
+                        check_read(i,i,1); 
+                    end 
+                    @(posedge clk);
+                end
+                1: begin //standby test
+                    $display("[SPECIFIC TEST] Standby test");
+                    rst_n = 1;
+                    chip_en = 0;
+                    @(posedge clk); #1;     
+                    check_read(1, 2, 1);
+                end
+
+                2: begin // Specific Case: Write to address 0
+                    $display("[SPECIFIC TEST] Attempting to write to address 0");
+                    rst_n = 1; 
+                    chip_en = 1; 
+                    write_en_n = 0;
+                    write_addr = 0; 
+                    data_in = 8'hFF; // Try forcing all 1s
+                    read_addr_1 = 0; 
+                    read_addr_2 = 0;
+                    
+                    @(posedge clk); #1;
+                    check_read(0, 0, 1);
+                end
+
+                3: begin // Specific Case: Simultaneous Read/Write
+                    $display("[SPECIFIC TEST] Simultaneous Read and Write (Address 5)");
+                    rst_n = 1;
+                    chip_en = 1; 
+                    write_en_n = 0;
+                    write_addr = 5; 
+                    data_in = 8'hAA;
+                    read_addr_1 = 5; 
+                    read_addr_2 = 5;
+                    
+                    expected_mem[5] = 8'hAA; // Update the shadow memory
+                    
+                    @(posedge clk); #1;
+                    check_read(5, 5, 1);
+                end
+
+                4: begin // Specific Case: Write blocked in Standby mode
+                    $display("[SPECIFIC TEST] Attempting to write in Standby mode");
+                    rst_n = 1; 
+                    chip_en = 0; 
+                    write_en_n = 0; // Chip disabled
+                    write_addr = 3; 
+                    data_in = 8'hCC;
+                    read_addr_1 = 3; 
+                    read_addr_2 = 3;
+                                        
+                    @(posedge clk); #1;
+                    check_read(3, 3, 1); // Must read 0 because chip_en = 0
+                end
+
+                default: begin // Randomized operations (Reset, Standby, Read/Write)
+                    int rand_mode;
+                    rand_mode = $urandom_range(0, 99);
+
+                    if (rand_mode < 5) begin //5% probability of random reset
+                        $display("[RANDOM TEST] Triggering random Reset");
+                        rst_n = 0;
+                        chip_en = 1; 
+                        
+                        for (int i = 0; i < DEPTH; i++) begin
+                            expected_mem[i] = '0;
+                        end 
+
+                        #1;
+                        for (int i = 0; i < DEPTH; i++) begin
+                        check_read(i,i,1); // check the entire memory
+                        end
+                        @(posedge clk); 
+                        
+                    end else if (rand_mode < 20) begin //15% probability of random Standby
+                        $display("[RANDOM TEST] Triggering random Standby");
+                        rst_n = 1;
+                        chip_en = 0; // Disable chip
+                        write_en_n = $urandom_range(0, 1); // Try random write en
+                        
+                        write_addr = $urandom_range(0, DEPTH-1);
+                        read_addr_1 = $urandom_range(0, DEPTH-1);
+                        read_addr_2 = $urandom_range(0, DEPTH-1);
+                        data_in = $urandom_range(0, 2**8-1);
+                        
+                        // We do NOT update expected_mem because writes are ignored in standby
+
+                        @(posedge clk); #1;
+                        // check_read will correctly expect 0 because chip_en = 0
+                        check_read(read_addr_1, read_addr_2, 1); 
+
+                    end else begin //80% probability of normal read/write
+                        rst_n = 1;
+                        chip_en = 1; 
+
+                        write_en_n = $urandom_range(0,1);
+                        data_in = $urandom_range(0, 2**8-1);
+                        write_addr = $urandom_range(0, DEPTH-1);
+                        read_addr_1 = $urandom_range(0, DEPTH-1);
+                        read_addr_2 = $urandom_range(0, DEPTH-1);
+
+                        // Update shadow memory if a valid write occurs
+                        if (write_addr != 0 && write_en_n == 0) begin
+                            expected_mem[write_addr] = data_in;
+                        end   
+
+                        @(posedge clk); #1;
+                        check_read(read_addr_1, read_addr_2, 0);
+                    end
+                end
+            endcase
+        end
+    end
+endmodule

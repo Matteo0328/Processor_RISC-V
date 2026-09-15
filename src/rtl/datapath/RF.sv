@@ -14,8 +14,6 @@ module RF #(
     // Instantiate register
     logic [BW-1:0] mem [DEPTH];
 
-    // Address 0 is hardwired to zero
-    assign mem[0] = '0;
 
     //Read out
     assign data_out_1 = (chip_en && read_addr_1 != 0) ?mem[read_addr_1] : '0;
@@ -24,8 +22,7 @@ module RF #(
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin // Reset
-            // we neglect mem[0] since it's hardwired to 0
-            for (int i = 1; i<DEPTH; i++) begin 
+            for (int i = 0; i<DEPTH; i++) begin 
                 mem[i] <= '0;
             end
         end else if (chip_en) begin

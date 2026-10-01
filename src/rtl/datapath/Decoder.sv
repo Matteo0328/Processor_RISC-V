@@ -1,5 +1,5 @@
 //Extract RS1, RS2, RD, IMM from the instruction 
-module decoder (
+module Decoder (
     input logic [31:0] data_in,
     input logic Type_R, Type_I, Type_S, Type_SB, Type_U, Type_UJ,
     output logic [4:0] RS1, RS2, RD,
@@ -27,7 +27,7 @@ always_comb begin
         Type_SB: begin
             RS1 = data_in[19:15];
             RS2 = data_in[24:20];
-            IMM = {{20{data_in[31]}}, data_in[31], data_in[7], data_in[30:25], data_in[11:8],1'b0};
+            IMM = {{20{data_in[31]}}, data_in[7], data_in[30:25], data_in[11:8],1'b0};
         end
         Type_U: begin
             RD = data_in[11:7];
@@ -35,7 +35,7 @@ always_comb begin
         end
         Type_UJ: begin
             RD = data_in[11:7];
-            IMM = {{12{data_in[31]}}, data_in[31], data_in[19:12],data_in[20],data_in[30:21],1'b0};   
+            IMM = {{12{data_in[31]}}, data_in[19:12],data_in[20],data_in[30:21],1'b0};   
         end
     endcase
 end

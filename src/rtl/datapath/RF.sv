@@ -1,6 +1,6 @@
 module RF #(
-    parameter BW,
-    parameter DEPTH
+    parameter BW = 32,
+    parameter DEPTH = 32
 ) (
     input logic clk,rst_n,
     input logic [BW-1:0] data_in,

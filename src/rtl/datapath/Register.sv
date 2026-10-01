@@ -1,4 +1,4 @@
-module register #(
+module Register #(
     parameter int WIDTH = 32
 ) (
     input logic clk, rst_n, load,

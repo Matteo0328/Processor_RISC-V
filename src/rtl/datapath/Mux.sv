@@ -35,11 +35,11 @@ end
 endmodule
 
 
-module MUX5x1 #(
+module MUX4x1 #(
     parameter int WIDTH = 32
 )(
-    input logic [WIDTH-1:0] A, B, C, D, E, 
-    input logic sel_A, sel_B, sel_C, sel_D, sel_E,
+    input logic [WIDTH-1:0] A, B, C, D, 
+    input logic sel_A, sel_B, sel_C, sel_D,
     output logic [WIDTH-1:0] Y
 );
 always_comb begin 
@@ -49,7 +49,6 @@ always_comb begin
         sel_B: Y = B;
         sel_C: Y = C;
         sel_D: Y = D;
-        sel_E: Y = E;
     endcase
 end
 endmodule

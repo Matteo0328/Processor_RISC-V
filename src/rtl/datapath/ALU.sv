@@ -7,15 +7,12 @@ module ALU #(
 ) (
     input logic [BW-1 : 0] in_a,    // operand A
     input logic [BW-1 : 0] in_b,    // operand B
-    input logic [3 : 0] opcode,     // operation code   
+    input alu_op_t ALU_op,     // operation code   
     
     output logic [BW-1 : 0] out,    // output result
     output alu_flags_t flags       // flags of the result
 );  
 
-    // cast raw input opcode vector to enumerated operation type
-    alu_op_t op;
-    assign op = alu_op_t'(opcode); 
 
     logic [$clog2(BW)-1:0] shamt;
     assign shamt = in_b[$clog2(BW)-1:0];
@@ -25,7 +22,7 @@ module ALU #(
         out = '0;
         flags = '0;
 
-        case (op)
+        case (ALU_op)
             ADD: begin
                 out = in_a + in_b;
                 flags.overflow = (in_a[BW-1] == in_b[BW-1]) && (out[BW-1] != in_a[BW-1]);
@@ -50,4 +47,27 @@ module ALU #(
         flags.negative = out[BW-1];
         flags.zero = (out == '0);
     end
+
+
+`ifndef __SYNTHESIS__
+
+always_comb begin: ALU_assertions
+    // Check ALU opcode validity
+    assert (ALU_op inside {ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND, PASS_B}) 
+        else   $error("[ALU] Unknown ALU operation: %b", ALU_op);
+    
+
+    if (ALU_op inside {SLT, SLTU}) begin
+        // Upper 31 bits must always be zero
+        assert (out[31:1] == 31'b0)
+            else $error("[ALU ERROR] Upper 31 bits must be zero for SLT/SLTU! Out: 0x%08h", out);
+    end
+
+    //Check zero and negative flag validity
+    assert (flags.zero == (out == 32'b0))
+        else $error("[ALU FLAG ERROR] Zero flag mismatch! Flag: %b, ALU_out: 0x%08h", flags.zero, out);
+    assert (flags.negative == (out[BW-1]))
+        else $error("[ALU FLAG ERROR] Negative flag mismatch! Flag: %b, ALU_out: 0x%08h", flags.negative, out[BW-1]);       
+end
+`endif 
 endmodule

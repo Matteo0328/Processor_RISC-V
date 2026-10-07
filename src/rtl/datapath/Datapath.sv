@@ -8,7 +8,7 @@ module Datapath (
     input logic SgnE_8, SgnE_16, PT, ZrE_8, ZrE_16, // Extension
     input logic ldALU, ldMEM, ldPC, // RF_IN
     input logic ce, we_n, //RF
-    input logic selALU_PC, selImm_PC, selIJump,selINC_PC, //PC_IN
+    input logic  selImm_PC, selIJump,selINC_PC, //PC_IN
     input logic selZero_cond, selNZero_cond, //J_cond
     input logic selRS1, selPC, //A
     input logic selRS2, selImm, //B
@@ -60,7 +60,7 @@ module Datapath (
     MUX2x1 AM(d_out_PC, out_ALU, selPC_addr, selALU_addr, addr_MEM);
     MUX3x1 RF_IN(out_ALU, out_ext, (d_out_PC+4), ldALU, ldMEM, ldPC, data_in_RF);
     MUX2x1#(1) JC (flags_ALU.zero, (~flags_ALU.zero), selZero_cond, selNZero_cond, JC_out);
-    MUX4x1 PC_IN(out_ALU, (Imm+d_out_PC), (out_ALU & ~(32'b11)),(d_out_PC+4), selALU_PC, (JC_out| selImm_PC), selIJump, (selINC_PC | (~JC_out & (selZero_cond | selNZero_cond))), d_in_PC);
+    MUX3x1 PC_IN( (Imm+d_out_PC), (out_ALU & ~(32'b11)),(d_out_PC+4), (JC_out| selImm_PC), selIJump, (selINC_PC | (~JC_out & (selZero_cond | selNZero_cond))), d_in_PC);
 
     //register definition
     Register PC(clk, rst_n, loadPC, d_in_PC, d_out_PC);

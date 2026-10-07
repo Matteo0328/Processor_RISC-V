@@ -4,8 +4,9 @@ import ctrl_pkg::*;
 
 module controller (
     input logic clk,rst_n, 
-    //From Memory signals
+    //From Datapath signal
     input logic [31:0] instr,
+    //From Memory signals
     input logic mem_ready,
     //To memory signals
     output logic read_en,

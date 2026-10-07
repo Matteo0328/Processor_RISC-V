@@ -20,3 +20,27 @@ package alu_pkg;
         PASS_B  = 4'b1111           // passthrough B
     } alu_op_t;
 endpackage 
+
+
+package ctrl_pkg;
+
+    typedef enum logic [1:0] { 
+        fetch = 2'b00,
+        exec1 = 2'b01,
+        exec2 = 2'b10
+    } state_t;
+
+
+    typedef enum logic [6:0] { 
+        R_to_R      = 7'b0110011,
+        Imm         = 7'b0010011,
+        LUI         = 7'b0110111,
+        AUIPC       = 7'b0010111,
+        Loads       = 7'b0000011,
+        Stores      = 7'b0100011,
+        Cond_b      = 7'b1100011,
+        JAL         = 7'b1101111,
+        JALR        = 7'b1100111
+    } instr_type_t;
+
+endpackage

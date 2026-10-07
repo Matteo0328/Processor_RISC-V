@@ -72,4 +72,16 @@ module Datapath (
     
     //signal to controller
     assign inst_out = d_out_IR;
+
+    // validity of the PC
+    `ifndef __SYNTHESIS__
+        always_ff @( posedge clk ) begin
+            if (rst_n) begin
+                assert (!$isunknown(d_out_PC))
+                    else $error("[PC CORRUPTED] PC contains 'X' or 'Z'! PC: 0x%08h", d_out_PC);
+                assert (d_out_PC[1:0] == 2'b00)
+                    else $error("[PC MISALIGNED] PC is not 4-byte aligned! Current PC: 0x%08h", d_out_PC);
+            end
+        end
+    `endif
 endmodule

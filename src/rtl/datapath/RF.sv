@@ -32,4 +32,25 @@ module RF #(
         end
         
     end
+    
+    `ifndef __SYNTHESIS__
+    // The internal register x0 must ALWAYS remain 0
+    always_ff @( posedge clk ) begin
+        assert (mem[0] == 32'b0)
+            else $fatal(1, "[RF VIOLATION] Register x0 corrupted! Current value: 0x%08h", mem[0]);        
+    end
+    // Combinational check on read ports when addressing x0
+    always_comb begin
+        if (rst_n) begin
+            if (read_addr_1 == 5'd0) begin
+                assert (data_out_1 == 32'b0)
+                    else $error("[RF READ ERROR] Port data_out_1 is not zero when reading register x0!");
+            end
+            if (read_addr_2 == 5'd0) begin
+                assert (data_out_2 == 32'b0)
+                    else $error("[RF READ ERROR] Port data_out_2 is not zero when reading register x0!");
+            end
+        end
+    end
+    `endif 
 endmodule

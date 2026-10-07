@@ -2,7 +2,7 @@
 import alu_pkg::*;
 import ctrl_pkg::*;
 
-module controller (
+module Controller (
     input logic clk,rst_n, 
     //From Datapath signal
     input logic [31:0] instr,
@@ -248,4 +248,91 @@ always_comb begin : Mem_Data_Formatting
         endcase
     end
 end
+
+`ifndef __SYNTHESIS__
+
+always_comb begin : Design_Assertions
+    // ----Integrity of FSM----
+    assert (pstate inside {fetch, exec1, exec2}) 
+        else $error("[FSM ERROR] Invalid FSM state detected: %0d", pstate);
+
+
+    // ----No write in fetch state----
+    if (pstate == fetch) begin
+        assert (we_n == 1'b1)
+            else $error("[CTRL SAFETY] RF write enable active (we_n=0) during FETCH state");
+    end
+
+
+    // ----Mutual exclusion per functional group----
+    // Instruction Type Decoder
+    assert ($onehot0({Type_R, Type_I, Type_S, Type_SB, Type_U, Type_UJ}))
+        else $error("[CTRL CONFLICT] Multiple instruction type flags asserted simultaneously");
+
+    // Register File Input Source (RF_IN)
+    assert ($onehot0({ldALU, ldMEM, ldPC}))
+        else $error("[CTRL CONFLICT] Conflict on RF_IN: Multiple writeback sources enabled");
+
+    // Next Program Counter Selection (PC_IN)
+    assert ($onehot0({selINC_PC, selImm_PC, selIJump}))
+        else $error("[CTRL CONFLICT] Conflict on PC_IN: Multiple jump/increment paths enabled");
+
+    // Memory Address Source (Addr_Mem)
+    assert ($onehot0({selPC_addr, selALU_addr}))
+        else $error("[CTRL CONFLICT] Memory address collision: Both selPC_addr and selALU_addr are asserted");
+
+    // ALU Operand A Multiplexer
+    assert ($onehot0({selRS1, selPC}))
+        else $error("[CTRL CONFLICT] ALU Operand A conflict: Both selRS1 and selPC are active");
+
+    // ALU Operand B Multiplexer
+    assert ($onehot0({selRS2, selImm}))
+        else $error("[CTRL CONFLICT] ALU Operand B conflict: Both selRS2 and selImm are active");
+
+    // Load Extension Format
+    assert ($onehot0({SgnE_8, SgnE_16, PT, ZrE_8, ZrE_16}))
+        else $error("[CTRL CONFLICT] Load extension conflict: Multiple extension formats selected");
+
+    // Store Alignment Size
+    assert ($onehot0({ld_SB, ld_SH, ld_SW}))
+        else $error("[CTRL CONFLICT] Store sizing conflict: Multiple store widths selected");
+
+    // Branch Evaluation Flags
+    assert ($onehot0({selZero_cond, selNZero_cond}))
+        else $error("[CTRL CONFLICT] Branch condition conflict: Both selZero_cond and selNZero_cond asserted");
+
+
+
+    // ---- When writing to RF (we_n == 0), exactly ONE source must be selected----
+    if (we_n == 1'b0) begin
+        assert ($onehot({ldALU, ldMEM, ldPC}))
+            else $error("[CTRL LOGIC] we_n asserted with invalid or multiple writeback sources (ldALU/ldMEM/ldPC)");
+    end
+
+
+    // ---- During exec1 of Loads, no writeback----
+    if (pstate == exec1 && opcode == Loads) begin
+        assert (we_n == 1'b1 && ldMEM == 1'b0)
+            else $error("[CTRL TIMING] RF writeback triggered during EXEC1 for LOAD instruction!");
+    end
+
+
+    // ---- Store instructions safety----
+    if (opcode == Stores) begin
+        // Stores must NEVER write to Register File
+        assert (we_n == 1'b1 &&ldMEM)
+            else $error("[STORE SAFETY] RF write enabled (we_n=0) during a STORE instruction!");
+
+        // Stores must NEVER assert memory read_en
+        if (pstate == exec2) begin
+            assert (read_en == 1'b0)
+                else $error("[STORE SAFETY] read_en asserted during STORE execution in EXEC2!");
+        end
+    end
+
+
+end
+
+`endif
+
 endmodule

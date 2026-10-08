@@ -252,87 +252,254 @@ end
 `ifndef __SYNTHESIS__
 
 always_comb begin : Design_Assertions
-    // ----Integrity of FSM----
-    assert (pstate inside {fetch, exec1, exec2}) 
-        else $error("[FSM ERROR] Invalid FSM state detected: %0d", pstate);
+    if (rst_n) begin
+        // Validate that the controller is in a legitimate state
+        assert (pstate inside {fetch, exec1, exec2}) 
+            else $error("[FSM ERROR] Invalid FSM state detected: %0d", pstate);
 
+        // Instruction Type Decoder
+        assert ($onehot0({Type_R, Type_I, Type_S, Type_SB, Type_U, Type_UJ}))
+            else $error("[CTRL CONFLICT] Multiple instruction type flags asserted simultaneously");
 
-    // ----No write in fetch state----
-    if (pstate == fetch) begin
-        assert (we_n == 1'b1)
-            else $error("[CTRL SAFETY] RF write enable active (we_n=0) during FETCH state");
-    end
+        // Register File Input Source (RF_IN)
+        assert ($onehot0({ldALU, ldMEM, ldPC}))
+            else $error("[CTRL CONFLICT] Conflict on RF_IN: Multiple writeback sources enabled");
 
+        // Next Program Counter Selection (PC_IN)
+        assert ($onehot0({selINC_PC, selImm_PC, selIJump}))
+            else $error("[CTRL CONFLICT] Conflict on PC_IN: Multiple jump/increment paths enabled");
 
-    // ----Mutual exclusion per functional group----
-    // Instruction Type Decoder
-    assert ($onehot0({Type_R, Type_I, Type_S, Type_SB, Type_U, Type_UJ}))
-        else $error("[CTRL CONFLICT] Multiple instruction type flags asserted simultaneously");
+        // Memory Address Source (Addr_Mem)
+        assert ($onehot0({selPC_addr, selALU_addr}))
+            else $error("[CTRL CONFLICT] Memory address collision: Both selPC_addr and selALU_addr are asserted");
 
-    // Register File Input Source (RF_IN)
-    assert ($onehot0({ldALU, ldMEM, ldPC}))
-        else $error("[CTRL CONFLICT] Conflict on RF_IN: Multiple writeback sources enabled");
+        // ALU Operand A Multiplexer
+        assert ($onehot0({selRS1, selPC}))
+            else $error("[CTRL CONFLICT] ALU Operand A conflict: Both selRS1 and selPC are active");
 
-    // Next Program Counter Selection (PC_IN)
-    assert ($onehot0({selINC_PC, selImm_PC, selIJump}))
-        else $error("[CTRL CONFLICT] Conflict on PC_IN: Multiple jump/increment paths enabled");
+        // ALU Operand B Multiplexer
+        assert ($onehot0({selRS2, selImm}))
+            else $error("[CTRL CONFLICT] ALU Operand B conflict: Both selRS2 and selImm are active");
 
-    // Memory Address Source (Addr_Mem)
-    assert ($onehot0({selPC_addr, selALU_addr}))
-        else $error("[CTRL CONFLICT] Memory address collision: Both selPC_addr and selALU_addr are asserted");
+        // Load Extension Format
+        assert ($onehot0({SgnE_8, SgnE_16, PT, ZrE_8, ZrE_16}))
+            else $error("[CTRL CONFLICT] Load extension conflict: Multiple extension formats selected");
 
-    // ALU Operand A Multiplexer
-    assert ($onehot0({selRS1, selPC}))
-        else $error("[CTRL CONFLICT] ALU Operand A conflict: Both selRS1 and selPC are active");
+        // Store Alignment Size
+        assert ($onehot0({ld_SB, ld_SH, ld_SW}))
+            else $error("[CTRL CONFLICT] Store sizing conflict: Multiple store widths selected");
 
-    // ALU Operand B Multiplexer
-    assert ($onehot0({selRS2, selImm}))
-        else $error("[CTRL CONFLICT] ALU Operand B conflict: Both selRS2 and selImm are active");
+        // Branch Evaluation Flags
+        assert ($onehot0({selZero_cond, selNZero_cond}))
+            else $error("[CTRL CONFLICT] Branch condition conflict: Both selZero_cond and selNZero_cond asserted");
 
-    // Load Extension Format
-    assert ($onehot0({SgnE_8, SgnE_16, PT, ZrE_8, ZrE_16}))
-        else $error("[CTRL CONFLICT] Load extension conflict: Multiple extension formats selected");
-
-    // Store Alignment Size
-    assert ($onehot0({ld_SB, ld_SH, ld_SW}))
-        else $error("[CTRL CONFLICT] Store sizing conflict: Multiple store widths selected");
-
-    // Branch Evaluation Flags
-    assert ($onehot0({selZero_cond, selNZero_cond}))
-        else $error("[CTRL CONFLICT] Branch condition conflict: Both selZero_cond and selNZero_cond asserted");
-
-
-
-    // ---- When writing to RF (we_n == 0), exactly ONE source must be selected----
-    if (we_n == 1'b0) begin
-        assert ($onehot({ldALU, ldMEM, ldPC}))
-            else $error("[CTRL LOGIC] we_n asserted with invalid or multiple writeback sources (ldALU/ldMEM/ldPC)");
-    end
-
-
-    // ---- During exec1 of Loads, no writeback----
-    if (pstate == exec1 && opcode == Loads) begin
-        assert (we_n == 1'b1 && ldMEM == 1'b0)
-            else $error("[CTRL TIMING] RF writeback triggered during EXEC1 for LOAD instruction!");
-    end
-
-
-    // ---- Store instructions safety----
-    if (opcode == Stores) begin
-        // Stores must NEVER write to Register File
-        assert (we_n == 1'b1 &&ldMEM)
-            else $error("[STORE SAFETY] RF write enabled (we_n=0) during a STORE instruction!");
-
-        // Stores must NEVER assert memory read_en
-        if (pstate == exec2) begin
-            assert (read_en == 1'b0)
-                else $error("[STORE SAFETY] read_en asserted during STORE execution in EXEC2!");
+        // Register file Write Invariant
+        if (we_n == 1'b0) begin
+            assert ($onehot({ldALU, ldMEM, ldPC}))
+                else $error("[CTRL LOGIC] we_n asserted with invalid or multiple writeback sources (ldALU/ldMEM/ldPC)");
         end
     end
-
-
 end
 
+always_comb begin : Instruction_decoding_checks
+    if(rst_n && pstate == exec1) begin
+        
+        // R-Type Instructions
+        if (opcode == R_to_R) begin
+            assert (Type_R && selRS1 && selRS2 && ldALU && !we_n && ce && loadPC && selINC_PC) 
+                else  $error("[DECODE R-TYPE] Invalid control bus configuration during EXEC1");
+        end
+
+        // Immediate ALU Instructions
+        if (opcode == Imm) begin
+            assert (Type_I && selRS1 && selImm && ldALU && !we_n && ce && loadPC && selINC_PC) 
+                else  $error("[DECODE I-TYPE] Invalid control bus configuration during EXEC1");
+        end
+
+        //Memory Loads (Address Calculation)
+        if (opcode == Loads) begin
+            assert (Type_I && selRS1 && selImm && ALU_op == ADD && we_n && ce && !loadPC && !read_en) 
+                else  $error("[DECODE LOAD EXEC1] Invalid control signals during address calculation phase");
+        end
+
+        //Memory Stores (Address Calculation)
+        if (opcode == Stores) begin
+            assert (Type_S && selRS1 && selImm && ALU_op == ADD && we_n && ce && !loadPC && !read_en) 
+                else  $error("[DECODE STORE EXEC1] Invalid control signals during address calculation phase");
+        end
+
+        //Conditional Branch Instructions
+        if (opcode == Cond_b) begin
+            assert (Type_SB && selRS1 && selRS2 && we_n && ce && loadPC && !selINC_PC && (selZero_cond || selNZero_cond)) 
+                else  $error("[DECODE BRANCH] Invalid control signals for conditional branch in EXEC1");
+        end
+
+        //LUI 
+        if (opcode == LUI) begin
+            assert (Type_U && selImm && ALU_op == PASS_B && ldALU && !we_n && ce && loadPC && selINC_PC) 
+                else  $error("[DECODE LUI] Invalid control signals for LUI in EXEC1");
+        end
+
+        //AUIPC
+        if (opcode == AUIPC) begin
+            assert (Type_U && selPC && selImm && ALU_op == ADD && ldALU && !we_n && ce && loadPC && selINC_PC) 
+                else  $error("[DECODE AUIPC] Invalid control signals for AUIPC in EXEC1");
+        end
+
+        //JAL
+        if (opcode == JAL) begin
+            assert (Type_UJ && ldPC && !we_n && ce && loadPC && selImm_PC) 
+                else  $error("[DECODE JAL] Invalid control signals for JAL in EXEC1");
+        end
+
+        //JALR
+        if (opcode == JALR) begin
+            assert (Type_I && ldPC && !we_n && ce && 
+                    selRS1 && selImm && ALU_op == ADD && loadPC && selIJump)
+                else $error("[DECODE JALR] Invalid control signals for JALR in EXEC1");
+        end
+
+    end
+
+    if(rst_n && pstate == exec2) begin
+
+        // The address calculation path (rs1 + imm) must remain continuously asserted
+        assert (selRS1 && selImm && !selRS2 && !selPC && (ALU_op == ADD))
+            else $error("[CTRL LOAD/STORE EXEC2] ALU operands or operation altered during memory phase");
+
+        //Loads Writeback
+        if (opcode == Loads) begin
+            assert (read_en && selALU_addr)
+                else $error("[CTRL LOAD EXEC2] Memory read protocol signals incorrectly driven in EXEC2");
+            if (mem_ready) begin
+                assert (!we_n && ldMEM && loadPC && selINC_PC)
+                    else $error("[CTRL LOAD WB] Register File writeback controls failed to assert upon mem_ready");
+            end else begin
+                assert (we_n && !loadPC)
+                    else $error("[CTRL LOAD STALL] Premature RF write or PC increment before mem_ready assertion");
+                end
+        end
+
+        // Stores Memory
+        if (opcode == Stores) begin
+            // Stores must never write to RF or issue memory read requests
+            assert (!read_en && selALU_addr && we_n && !ldMEM)
+                else $error("[STORE SAFETY] Memory or RF safety protocol violated during store in EXEC2");
+            if (mem_ready) begin
+                assert (loadPC && selINC_PC)
+                    else $error("[CTRL STORE DONE] PC increment failed to assert upon store completion");
+            end else begin
+                assert (!loadPC)
+                    else $error("[CTRL STORE STALL] Premature PC increment before store transaction finalized");
+            end
+        end
+    end
+end
+
+// ----Temporal Assertions----
+
+//Asynchronous reset verification
+property p_fsm_reset;
+    @(posedge clk) (!rst_n) |-> (pstate == fetch);
+endproperty
+assert property (p_fsm_reset) 
+    else $error("[FSM RESET] FSM failed to reset into FETCH state on reset assertion");
+
+//Forward Transitions
+
+//FETCH -> EXEC1
+property p_fetch_to_exec1;
+    @(posedge clk) disable iff (!rst_n)
+    (pstate == fetch && mem_ready) |=> (pstate == exec1);
+endproperty
+assert property (p_fetch_to_exec1)
+    else $error("[FSM TRANS] Failed to advance from FETCH to EXEC1 upon mem_ready assertion");
+
+//EXEC1 -> EXEC2
+property p_exec1_to_exec2;
+    @(posedge clk) disable iff (!rst_n)
+    (pstate == exec1 && (opcode inside {Loads, Stores})) |=> (pstate == exec2);
+endproperty
+assert property (p_exec1_to_exec2)
+    else $error("[FSM TRANS] Multicycle instruction (Load/Store) failed to enter EXEC2 from EXEC1");    
+
+//EXEC1 -> FETCH
+property p_exec1_to_fetch;
+    @(posedge clk) disable iff (!rst_n)
+    (pstate == exec1 && !(opcode inside {Loads, Stores})) |=> (pstate == fetch);
+endproperty
+assert property (p_exec1_to_fetch)
+    else $error("[FSM TRANS] Single-cycle instruction did not return to FETCH after EXEC1");
+
+//EXEC2 -> FETCH
+property p_exec2_to_fetch;
+    @(posedge clk) disable iff (!rst_n)
+    (pstate == exec2 && mem_ready) |=> (pstate == fetch);
+endproperty
+assert property (p_exec2_to_fetch)
+    else $error("[FSM TRANS] Multicycle instruction failed to return to FETCH from EXEC2 upon mem_ready");
+
+
+// State hold /stall verification (mem_ready low)
+
+// FETCH hold
+property p_hold_fetch;
+    @(posedge clk) disable iff (!rst_n)
+    (pstate == fetch && !mem_ready) |=> (pstate == fetch);
+endproperty
+assert property (p_hold_fetch)
+    else $error("[FSM STALL] FSM left FETCH state prematurely while mem_ready was deasserted");
+
+// EXEC2 hold
+property p_hold_exec2;
+    @(posedge clk) disable iff (!rst_n)
+    (pstate == exec2 && !mem_ready) |=> (pstate == exec2);
+endproperty
+assert property (p_hold_exec2)
+    else $error("[FSM STALL] FSM left EXEC2 state prematurely while mem_ready was deasserted");
+
+// Handshake and latch synchronization 
+
+// IR latch
+
+property p_sync_loadIR;
+    @(posedge clk) disable iff(!rst_n)
+    (pstate == fetch) ? (loadIR == mem_ready) : (!loadIR);
+endproperty
+assert property (p_sync_loadIR)
+    else $error("[SYNC TIMING] loadIR must be asserted if and only if mem_ready is high in FETCH");
+
+// read_en must drop to 0 when exiting FETCH
+property p_sync_read_en_drop;
+    @(posedge clk) disable iff (!rst_n)
+    (pstate == fetch && mem_ready) |=> (!read_en);
+endproperty
+assert property (p_sync_read_en_drop)
+    else $error("[SYNC TIMING] read_en remained high when entering EXEC1");
+
+// in EXEC2 read_en must be high if and only if it is a Load
+property p_sync_read_en_exec2;
+    @(posedge clk) disable iff (!rst_n)
+    (pstate == exec2) |-> (read_en == (opcode == Loads));
+endproperty
+assert property (p_sync_read_en_exec2)
+    else $error("[SYNC TIMING] read_en mismatch in EXEC2: expected high only for Loads!");
+
+// PCr update timing during EXEC1
+    property p_sync_loadPC_exec1;
+        @(posedge clk) disable iff (!rst_n)
+        (pstate == exec1) |-> (loadPC == !(opcode inside {Loads, Stores}));
+    endproperty
+    assert property (p_sync_loadPC_exec1)
+        else $error("[SYNC TIMING] loadPC assertion mismatch during EXEC1 stage");
+
+// PC update timing during EXEC2: must occur only upon mem_ready
+    property p_sync_loadPC_exec2;
+        @(posedge clk) disable iff (!rst_n)
+        (pstate == exec2) |-> (loadPC == mem_ready);
+    endproperty
+    assert property (p_sync_loadPC_exec2)
+        else $error("[SYNC TIMING] loadPC in EXEC2 must be strictly gated by mem_ready");
 `endif
 
 endmodule

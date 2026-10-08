@@ -306,55 +306,55 @@ always_comb begin : Instruction_decoding_checks
         
         // R-Type Instructions
         if (opcode == R_to_R) begin
-            assert (Type_R && selRS1 && selRS2 && ldALU && !we_n && ce && loadPC && selINC_PC) 
+            assert #0 (Type_R && selRS1 && selRS2 && ldALU && !we_n && ce && loadPC && selINC_PC) 
                 else  $error("[DECODE R-TYPE] Invalid control bus configuration during EXEC1");
         end
 
         // Immediate ALU Instructions
         if (opcode == Imm) begin
-            assert (Type_I && selRS1 && selImm && ldALU && !we_n && ce && loadPC && selINC_PC) 
+            assert #0 (Type_I && selRS1 && selImm && ldALU && !we_n && ce && loadPC && selINC_PC) 
                 else  $error("[DECODE I-TYPE] Invalid control bus configuration during EXEC1");
         end
 
         //Memory Loads (Address Calculation)
         if (opcode == Loads) begin
-            assert (Type_I && selRS1 && selImm && ALU_op == ADD && we_n && ce && !loadPC && !read_en) 
+            assert #0 (Type_I && selRS1 && selImm && ALU_op == ADD && we_n && ce && !loadPC && !read_en) 
                 else  $error("[DECODE LOAD EXEC1] Invalid control signals during address calculation phase");
         end
 
         //Memory Stores (Address Calculation)
         if (opcode == Stores) begin
-            assert (Type_S && selRS1 && selImm && ALU_op == ADD && we_n && ce && !loadPC && !read_en) 
+            assert #0 (Type_S && selRS1 && selImm && ALU_op == ADD && we_n && ce && !loadPC && !read_en) 
                 else  $error("[DECODE STORE EXEC1] Invalid control signals during address calculation phase");
         end
 
         //Conditional Branch Instructions
         if (opcode == Cond_b) begin
-            assert (Type_SB && selRS1 && selRS2 && we_n && ce && loadPC && !selINC_PC && (selZero_cond || selNZero_cond)) 
+            assert #0 (Type_SB && selRS1 && selRS2 && we_n && ce && loadPC && !selINC_PC && (selZero_cond || selNZero_cond)) 
                 else  $error("[DECODE BRANCH] Invalid control signals for conditional branch in EXEC1");
         end
 
         //LUI 
         if (opcode == LUI) begin
-            assert (Type_U && selImm && ALU_op == PASS_B && ldALU && !we_n && ce && loadPC && selINC_PC) 
+            assert #0 (Type_U && selImm && ALU_op == PASS_B && ldALU && !we_n && ce && loadPC && selINC_PC) 
                 else  $error("[DECODE LUI] Invalid control signals for LUI in EXEC1");
         end
 
         //AUIPC
         if (opcode == AUIPC) begin
-            assert (Type_U && selPC && selImm && ALU_op == ADD && ldALU && !we_n && ce && loadPC && selINC_PC) 
+            assert #0 (Type_U && selPC && selImm && ALU_op == ADD && ldALU && !we_n && ce && loadPC && selINC_PC) 
                 else  $error("[DECODE AUIPC] Invalid control signals for AUIPC in EXEC1");
         end
 
         //JAL
         if (opcode == JAL) begin
-            assert (Type_UJ && ldPC && !we_n && ce && loadPC && selImm_PC) 
+            assert #0 (Type_UJ && ldPC && !we_n && ce && loadPC && selImm_PC) 
                 else  $error("[DECODE JAL] Invalid control signals for JAL in EXEC1");
         end
 
         //JALR
         if (opcode == JALR) begin
-            assert (Type_I && ldPC && !we_n && ce && 
+            assert #0 (Type_I && ldPC && !we_n && ce && 
                     selRS1 && selImm && ALU_op == ADD && loadPC && selIJump)
                 else $error("[DECODE JALR] Invalid control signals for JALR in EXEC1");
         end
@@ -364,18 +364,18 @@ always_comb begin : Instruction_decoding_checks
     if(rst_n && pstate == exec2) begin
 
         // The address calculation path (rs1 + imm) must remain continuously asserted
-        assert (selRS1 && selImm && !selRS2 && !selPC && (ALU_op == ADD))
+        assert #0 (selRS1 && selImm && !selRS2 && !selPC && (ALU_op == ADD))
             else $error("[CTRL LOAD/STORE EXEC2] ALU operands or operation altered during memory phase");
 
         //Loads Writeback
         if (opcode == Loads) begin
-            assert (read_en && selALU_addr)
+            assert #0 (read_en && selALU_addr)
                 else $error("[CTRL LOAD EXEC2] Memory read protocol signals incorrectly driven in EXEC2");
             if (mem_ready) begin
-                assert (!we_n && ldMEM && loadPC && selINC_PC)
+                assert #0 (!we_n && ldMEM && loadPC && selINC_PC)
                     else $error("[CTRL LOAD WB] Register File writeback controls failed to assert upon mem_ready");
             end else begin
-                assert (we_n && !loadPC)
+                assert #0 (we_n && !loadPC)
                     else $error("[CTRL LOAD STALL] Premature RF write or PC increment before mem_ready assertion");
                 end
         end
@@ -383,13 +383,13 @@ always_comb begin : Instruction_decoding_checks
         // Stores Memory
         if (opcode == Stores) begin
             // Stores must never write to RF or issue memory read requests
-            assert (!read_en && selALU_addr && we_n && !ldMEM)
+            assert #0 (!read_en && selALU_addr && we_n && !ldMEM)
                 else $error("[STORE SAFETY] Memory or RF safety protocol violated during store in EXEC2");
             if (mem_ready) begin
-                assert (loadPC && selINC_PC)
+                assert #0 (loadPC && selINC_PC)
                     else $error("[CTRL STORE DONE] PC increment failed to assert upon store completion");
             end else begin
-                assert (!loadPC)
+                assert #0 (!loadPC)
                     else $error("[CTRL STORE STALL] Premature PC increment before store transaction finalized");
             end
         end

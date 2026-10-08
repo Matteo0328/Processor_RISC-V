@@ -239,7 +239,7 @@ always_comb begin : Mem_Data_Formatting
             3'b101: ZrE_16  = 1'b1;
             default: ;
         endcase
-    end else if (opcode == Stores) begin
+    end else if (opcode == Stores && pstate == exec2) begin
         case (func3)
             3'b000: ld_SB   = 1'b1;
             3'b001: ld_SH   = 1'b1;

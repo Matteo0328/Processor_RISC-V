@@ -244,8 +244,12 @@ task automatic verify_imm_type();
             3'b110: exp_res = opA | simm;
             3'b111: exp_res = opA & simm;
             3'b001: exp_res = opA << item.imm[4:0];
-            3'b101: exp_res = (item.imm[11:5] == 7'b0100000) ? 
-                              ($signed(opA) >>> item.imm[4:0]) : (opA >> item.imm[4:0]);
+            3'b101: begin
+                    if (item.imm[11:5] == 7'b0100000)
+                        exp_res = $signed(opA) >>> item.imm[4:0];
+                        else if (item.imm[11:5] == 7'b0000000)
+                        exp_res = opA >> item.imm[4:0];
+                end
             default: exp_res = 32'h0;
         endcase
     if (item.rd == 0) exp_res = 32'h0;
@@ -259,6 +263,49 @@ task automatic verify_imm_type();
     end
 endtask //verify_imm_type
 
+// ------ LUI verification ------
+task automatic verify_lui();
+    riscv_instr_item item = new();
+    logic [31:0] pc_curr, exp_res;
+
+    assert (item.randomize() with {opcode == LUI; })
+        else $fatal(1, "[TB FATAL] Constraint solver failed to randomize LUI instruction");
+
+    pc_curr = DUT.Datapath.d_out_PC;
+    write_mem(pc_curr, item.pack());
+
+    // compute expected result
+    exp_res = (item.rd == 5'd0) ? 32'h0 : {item.imm[31:12], 12'h000};
+
+    step_instruction();
+    if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || DUT.Datapath.d_out_PC !== pc_curr + 4) begin
+        $error("[FAIL LUI] rd=%0d | Exp: %h, Got: %h, Exp PC: %h, Got PC: %h",
+                   item.rd, exp_res, DUT.Datapath.RF1.mem[item.rd], pc_curr + 4, DUT.Datapath.d_out_PC);
+        fail_count++;
+    end
+endtask //verify_lui
+
+// ---- AUIPC verification -----
+task automatic verify_auipc();
+    riscv_instr_item item = new();
+    logic [31:0] pc_curr, exp_res;
+
+        assert (item.randomize() with {opcode == AUIPC; })
+        else $fatal(1, "[TB FATAL] Constraint solver failed to randomize AUIPC instruction");
+    pc_curr = DUT.Datapath.d_out_PC;
+    write_mem(pc_curr, item.pack());
+
+    // compute expected result
+    exp_res = (item.rd == 5'd0) ? 32'h0 : (pc_curr + {item.imm[31:12], 12'h000});
+
+    step_instruction();
+
+    if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || DUT.Datapath.d_out_PC !== pc_curr + 4) begin
+            $error("[FAIL AUIPC] rd=%0d | Exp: %h, Got: %h, Exp PC: %h, Got PC: %h",
+                   item.rd, exp_res, DUT.Datapath.RF1.mem[item.rd], pc_curr + 4, DUT.Datapath.d_out_PC);
+            fail_count++;
+        end
+endtask //verify_auipc
 
 // ---- Main verification flow ----
 
@@ -276,8 +323,14 @@ initial begin
     $display("\n[PHASE 1] Executing Randomized R-Type Instructions...");
     repeat(N_TEST) verify_r_type ();
 
-    $display("\n[PHASE 1] Executing Randomized Imm-Type Instructions...");
+    $display("\n[PHASE 2] Executing Randomized Imm-Type Instructions...");
     repeat(N_TEST) verify_imm_type ();
+
+    $display("\n[PHASE 3] Executing U-Type Instructions...");
+    repeat (10) begin
+        verify_lui();
+        verify_auipc();
+    end
 
     if (fail_count == 0)
             $display(">>> ALL VERIFICATION TESTS PASSED! <<<\n");

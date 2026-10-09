@@ -82,7 +82,7 @@ endclass //riscv_instr_item
 
 
 module CPU_tb;
-    localparam N_TEST = 50; //each type of test 
+    localparam N_TEST = 1000; //each type of test 
     logic        clk,rst_n; 
     logic [31:0] data_in;
     logic        mem_ready;
@@ -103,9 +103,10 @@ module CPU_tb;
     // ---- Emulated Memory -----
 
     localparam int MEM_DEPTH = 16384; //64KiB
+    localparam int MEM_AW    = $clog2(MEM_DEPTH);   // 14 bit: indice di parola
     logic [31:0] memory [0:MEM_DEPTH-1];
-    logic [29:0] word_idx;
-    assign word_idx = addr[31:2];
+    logic [MEM_AW-1:0] word_idx;
+    assign word_idx = addr[MEM_AW+1:2];
     int read_latency_cnt;
 
     // Memory initialization 
@@ -147,11 +148,11 @@ module CPU_tb;
 // ---- Controller routines ----
 
     task automatic write_mem(input logic [31:0] byte_addr, input logic [31:0] val);
-        memory[byte_addr[31:2]] = val;
+        memory[byte_addr[MEM_AW+1:2]] = val;
     endtask 
 
     function automatic logic [31:0] read_mem( input logic [31:0] byte_addr);
-        return memory[byte_addr[31:2]];
+        return memory[byte_addr[MEM_AW+1:2]];
     endfunction
 
     //Advance execution across one complete instruction cycle
@@ -369,14 +370,15 @@ task automatic verify_store();
     eff = opA + simm;
     if (item.rs2 != 0) DUT.Datapath.RF1.mem[item.rs2] = $urandom();
     if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
-
+    word = (item.rs2 != 0) ? DUT.Datapath.RF1.mem[item.rs2] : 32'h0;
 
     pc_curr = DUT.Datapath.d_out_PC;
     write_mem(eff, $urandom());
     write_mem(pc_curr, item.pack());
-    word = read_mem(eff);
 
-        case (item.func3)
+    //modify only the written byte
+    exp_res = read_mem(eff);
+    case (item.func3)
         3'b000:     exp_res[8*eff[1:0] +: 8] = word[7:0];     // SB
         3'b001:     exp_res[16*eff[1] +: 16] = word[15:0];// SH
         3'b010:     exp_res = word;        // SW
@@ -399,7 +401,7 @@ task automatic verify_branch();
     logic [31:0]  pc_curr, opA, opB, exp_pc;
     logic taken;
 
-    assert(item.randomize() with {opcode == Cond_b;})
+    assert(item.randomize() with {opcode == Cond_b; imm[1:0] == 2'b00;})
         else $fatal(1, "[TB FATAL] Constraint solver failed to randomize Branch instruction");
 
     // Generate  data and  backdoor-initialize the DUT RF with the selected operands before instruction execution
@@ -436,6 +438,59 @@ task automatic verify_branch();
     end
 endtask //verify_branch
 
+// ------ JAL verification ------
+task automatic verify_jal();
+    riscv_instr_item item = new();
+    logic [31:0] pc_curr, exp_pc, exp_rd;
+
+    assert (item.randomize() with { opcode == JAL; imm[1:0] == 2'b00;})
+            else $fatal(1, "[TB FATAL] Constraint solver failed to randomize JAL instruction");
+
+    pc_curr = DUT.Datapath.d_out_PC;
+    write_mem(pc_curr, item.pack());
+
+    //compute expected result
+    exp_rd = (item.rd == 0) ? 32'h0 : pc_curr + 4;
+    exp_pc = pc_curr + {{11{item.imm[20]}}, item.imm[20:1], 1'b0};
+
+    step_instruction();
+
+    if (DUT.Datapath.RF1.mem[item.rd] !== exp_rd || DUT.Datapath.d_out_PC !== exp_pc) begin
+        $error("[FAIL JAL] rd=%0d imm=%0d | Exp rd: %h, Got: %h, Exp PC: %h, Got PC: %h",
+               item.rd, $signed(item.imm[20:0]), exp_rd, DUT.Datapath.RF1.mem[item.rd],
+               exp_pc, DUT.Datapath.d_out_PC);
+        fail_count++;
+    end   
+endtask //verify_jal
+
+// ------ JALR verification ------
+task automatic verify_jalr();
+    riscv_instr_item item = new();
+    logic [31:0] pc_curr, opA, exp_pc, exp_rd;
+
+    assert (item.randomize() with { opcode == JALR; imm[1:0] == 2'b00;})
+            else $fatal(1, "[TB FATAL] Constraint solver failed to randomize JALR instruction");
+
+    // Generate data and backdoor-initialize the DUT RF with the selected operand before instruction execution
+    opA = (item.rs1 != 0) ? $urandom() : 32'h0;
+    if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
+
+    pc_curr = DUT.Datapath.d_out_PC;
+    write_mem(pc_curr, item.pack());
+
+    //compute expected result
+    exp_rd = (item.rd == 0) ? 32'h0 : pc_curr + 4;
+    exp_pc = (opA + {{20{item.imm[11]}}, item.imm[11:0]}) & ~(32'b11);
+
+    step_instruction();
+
+    if (DUT.Datapath.RF1.mem[item.rd] !== exp_rd || DUT.Datapath.d_out_PC !== exp_pc) begin
+        $error("[FAIL JALR] rd=%0d rs1=%0d | A=%h imm=%0d | Exp rd: %h, Got: %h, Exp PC: %h, Got PC: %h",
+               item.rd, item.rs1, opA, $signed(item.imm[11:0]), exp_rd, DUT.Datapath.RF1.mem[item.rd],
+               exp_pc, DUT.Datapath.d_out_PC);
+        fail_count++;
+    end 
+endtask //verify_jalr
 
 // ---- Main verification flow ------
 
@@ -468,14 +523,34 @@ initial begin
     $display("\n[PHASE 5] Executing Randomized Store Instructions...");
     repeat (N_TEST) verify_store();
 
-    //$display("\n[PHASE 6] Executing Randomized Branch Instructions...");
-    //repeat (N_TEST) verify_branch();
+    $display("\n[PHASE 6] Executing Randomized Branch Instructions...");
+    repeat (N_TEST) verify_branch();
 
+    $display("\n[PHASE 7] Executing Randomized Branch Instructions...");
+    repeat (N_TEST) verify_jal();
+
+    $display("\n[PHASE 8] Executing Randomized Branch Instructions...");
+    repeat (N_TEST) verify_jalr();
+
+    $display("\n[PHASE 9] Executing Mixed Random Instructions...");
+    repeat (N_TEST * 8) begin
+    randcase
+            2: verify_r_type();
+            2: verify_imm_type();
+            1: verify_lui();
+            1: verify_auipc();
+            2: verify_load();
+            2: verify_store();
+            2: verify_branch();
+            1: verify_jal();
+            1: verify_jalr();
+        endcase
+    end
 
     if (fail_count == 0)
-            $display(">>> ALL VERIFICATION TESTS PASSED! <<<\n");
-        else
-            $display(">>> TEST COMPLETED WITH FAILURES. <<<\n");
+        $display(">>> No testbench check failed (check the transcript for RTL assertion errors) <<<\n");
+    else
+        $display(">>> TEST COMPLETED WITH %0d FAILURES <<<\n", fail_count);
     $stop;
 end
 endmodule

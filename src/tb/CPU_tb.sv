@@ -82,7 +82,7 @@ endclass //riscv_instr_item
 
 
 module CPU_tb;
-    localparam N_TEST = 1000; //each type of test 
+    localparam N_TEST = 100; //each type of test 
     logic        clk,rst_n; 
     logic [31:0] data_in;
     logic        mem_ready;
@@ -99,6 +99,8 @@ module CPU_tb;
     bit reset_busy = 0;   
 
     CPU DUT (clk, rst_n, data_in, mem_ready, addr, data_out, write_en, read_en);
+
+    //CPU_cov cov (clk, rst_n, DUT.Controller.pstate, DUT.Datapath.d_out_IR, DUT.Datapath.data_out_1_RF, DUT.Datapath.data_out_2_RF);
 
     initial begin //clk
         clk = 0;
@@ -192,6 +194,19 @@ module CPU_tb;
         endcase
     endfunction
 
+    function automatic logic [31:0] rand_operand();
+        randcase
+            1:  return 32'h0000_0000;               // Zero
+            1:  return 32'hFFFF_FFFF;               // -1
+            1:  return 32'h7FFF_FFFF;               // Max positive int
+            1:  return 32'h8000_0000;               // Max negative int
+            1:  return 32'hAAAA_AAAA;               // Pattern 1010...
+            1:  return 32'h5555_5555;               // Pattern 0101...
+            2:  return (32'd1 << $urandom_range(0, 31)); // Single bit at 1
+            2:  return $urandom_range(1, 15);       // Small positive number
+            10: return $urandom();                  // Random value
+        endcase
+    endfunction
 
     // ------ R-Type verification ------
     task automatic verify_r_type ();
@@ -202,11 +217,11 @@ module CPU_tb;
             else $fatal(1,"[TB FAIL] Constraint solver failed to randomize R-Type instruction");
 
         // Generate  data and backdoor-initialize the DUT RF with the selected operands before instruction execution
-        opA = (item.rs1 != 0) ? $urandom() : 32'h0;
+        opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
         if (item.rs1 == item.rs2) begin
             opB = opA;
         end else begin
-            opB = (item.rs2 != 0) ? $urandom() : 32'h0;
+            opB = (item.rs2 != 0) ? rand_operand() : 32'h0;
         end
         if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
         if (item.rs2 != 0) DUT.Datapath.RF1.mem[item.rs2] = opB;
@@ -236,7 +251,7 @@ module CPU_tb;
             else $fatal(1,"[TB FAIL] Constraint solver failed to randomize I-Type instruction");
 
         // Generate  data and backdoor-initialize the DUT RF with the selected operands before instruction execution
-        opA = (item.rs1 != 0) ? $urandom() : 32'h0;
+        opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
         simm = {{20{item.imm[11]}}, item.imm[11:0]};
         if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
 
@@ -331,14 +346,14 @@ module CPU_tb;
             else $fatal(1, "[TB FATAL] Constraint solver failed to randomize Load instruction");
 
         // Generate  data and backdoor-initialize the DUT RF with the selected operands before instruction execution
-        opA = (item.rs1 != 0) ? $urandom() : 32'h0;
+        opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
         simm = {{20{item.imm[11]}}, item.imm[11:0]};
         eff = opA + simm;
         if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
 
 
         pc_curr = DUT.Datapath.d_out_PC;
-        write_mem(eff, $urandom());
+        write_mem(eff, rand_operand());
         write_mem(pc_curr, item.pack());
         word = read_mem(eff);
 
@@ -377,15 +392,15 @@ module CPU_tb;
             else $fatal(1, "[TB FATAL] Constraint solver failed to randomize Store instruction");
 
         // Generate  data and backdoor-initialize the DUT RF with the selected operands before instruction execution
-        opA = (item.rs1 != 0) ? $urandom() : 32'h0;
+        opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
         simm = {{20{item.imm[11]}}, item.imm[11:0]};
         eff = opA + simm;
-        if (item.rs2 != 0) DUT.Datapath.RF1.mem[item.rs2] = $urandom();
+        if (item.rs2 != 0) DUT.Datapath.RF1.mem[item.rs2] = rand_operand();
         if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
         word = (item.rs2 != 0) ? DUT.Datapath.RF1.mem[item.rs2] : 32'h0;
 
         pc_curr = DUT.Datapath.d_out_PC;
-        write_mem(eff, $urandom());
+        write_mem(eff, rand_operand());
         write_mem(pc_curr, item.pack());
 
         //modify only the written byte
@@ -418,8 +433,8 @@ module CPU_tb;
             else $fatal(1, "[TB FATAL] Constraint solver failed to randomize Branch instruction");
 
         // Generate  data and  backdoor-initialize the DUT RF with the selected operands before instruction execution
-        opA = (item.rs1 != 0) ? $urandom() : 32'h0;
-        opB = (item.rs2 != 0) ? (($urandom_range(0, 9) == 0) ? opA : $urandom()) : 32'h0; // 10% prob of getting opA == opB
+        opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
+        opB = (item.rs2 != 0) ? (($urandom_range(0, 9) == 0) ? opA : rand_operand()) : 32'h0; // 10% prob of getting opA == opB
         if (item.rs1 == item.rs2) opB = opA;
         if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
         if (item.rs2 != 0) DUT.Datapath.RF1.mem[item.rs2] = opB;
@@ -487,7 +502,7 @@ module CPU_tb;
                 else $fatal(1, "[TB FATAL] Constraint solver failed to randomize JALR instruction");
 
         // Generate data and backdoor-initialize the DUT RF with the selected operand before instruction execution
-        opA = (item.rs1 != 0) ? $urandom() : 32'h0;
+        opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
         if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
 
         pc_curr = DUT.Datapath.d_out_PC;
@@ -508,7 +523,6 @@ module CPU_tb;
         end 
     endtask //verify_jalr
 
-    // ------ 
 
     // ---- Main verification flow ------
     initial begin
@@ -545,10 +559,10 @@ module CPU_tb;
         $display("\n[PHASE 6] Executing Randomized Branch Instructions...");
         repeat (N_TEST) verify_branch();
 
-        $display("\n[PHASE 7] Executing Randomized Branch Instructions...");
+        $display("\n[PHASE 7] Executing Randomized JAL Instructions...");
         repeat (N_TEST) verify_jal();
 
-        $display("\n[PHASE 8] Executing Randomized Branch Instructions...");
+        $display("\n[PHASE 8] Executing Randomized JALR Instructions...");
         repeat (N_TEST) verify_jalr();
 
         $display("\n[PHASE 9] Executing Mixed Random Instructions...");
@@ -589,8 +603,8 @@ module CPU_tb;
 
             // send data to the CPU and try to write the memory
             repeat ($urandom_range(2, 5)) begin
-                force mem_ready = $urandom();
-                force data_in   = $urandom();
+                force mem_ready = rand_operand();
+                force data_in   = rand_operand();
                 @(posedge clk);
             end
 

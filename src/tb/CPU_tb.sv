@@ -82,7 +82,7 @@ endclass //riscv_instr_item
 
 
 module CPU_tb;
-    localparam N_TEST = 50; //each type of test 
+    localparam N_TEST = 1000; //each type of test 
     logic        clk,rst_n; 
     logic [31:0] data_in;
     logic        mem_ready;
@@ -307,6 +307,93 @@ task automatic verify_auipc();
         end
 endtask //verify_auipc
 
+// ---- Load-Type verification
+task automatic verify_load();
+    riscv_instr_item item = new();
+    logic [31:0] opA, simm, eff, pc_curr, word, exp_res;
+    logic [7:0] b;
+    logic [15:0] h;
+    
+
+    assert(item.randomize() with {opcode == Loads;})
+        else $fatal(1, "[TB FATAL] Constraint solver failed to randomize Load instruction");
+
+    // Generate  data and backdoor-initialize the DUT RF with the selected operands before instruction execution
+    opA = (item.rs1 != 0) ? $urandom() : 32'h0;
+    simm = {{20{item.imm[11]}}, item.imm[11:0]};
+    eff = opA + simm;
+    if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
+
+
+    pc_curr = DUT.Datapath.d_out_PC;
+    write_mem(eff, $urandom());
+    write_mem(pc_curr, item.pack());
+    word = read_mem(eff);
+
+    // compute expected result
+    b = word[8*eff[1:0] +: 8];
+    h = word[16*eff[1] +: 16];
+
+    case (item.func3)
+        3'b000:  exp_res = {{24{b[7]}},  b};   // LB
+        3'b001:  exp_res = {{16{h[15]}}, h};   // LH
+        3'b010:  exp_res = word;               // LW
+        3'b100:  exp_res = {24'h0, b};         // LBU
+        3'b101:  exp_res = {16'h0, h};         // LHU
+        default: exp_res = 32'h0;
+    endcase
+
+    if (item.rd == 0) exp_res = 32'h0;
+
+    step_instruction();
+
+    if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || DUT.Datapath.d_out_PC !== pc_curr + 4) begin
+        $error("[FAIL LOAD] rd=%0d rs1=%0d f3=%b addr=%h | Exp: %h, Got: %h, Exp PC: %h, Got PC: %h",
+               item.rd, item.rs1, item.func3, eff, exp_res, DUT.Datapath.RF1.mem[item.rd],
+               pc_curr + 4, DUT.Datapath.d_out_PC);
+        fail_count++;
+    end
+endtask //verify_load
+
+// ---- Store verification ----
+task automatic verify_store();
+    riscv_instr_item item = new();
+        logic [31:0] opA, simm, eff, pc_curr, word, exp_res;
+    
+    assert(item.randomize() with {opcode == Stores;})
+        else $fatal(1, "[TB FATAL] Constraint solver failed to randomize Store instruction");
+
+    // Generate  data and backdoor-initialize the DUT RF with the selected operands before instruction execution
+    opA = (item.rs1 != 0) ? $urandom() : 32'h0;
+    simm = {{20{item.imm[11]}}, item.imm[11:0]};
+    eff = opA + simm;
+    if (item.rs2 != 0) DUT.Datapath.RF1.mem[item.rs2] = $urandom();
+    if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
+
+
+    pc_curr = DUT.Datapath.d_out_PC;
+    write_mem(eff, $urandom());
+    write_mem(pc_curr, item.pack());
+    word = read_mem(eff);
+
+        case (item.func3)
+        3'b000:     exp_res[8*eff[1:0] +: 8] = word[7:0];     // SB
+        3'b001:     exp_res[16*eff[1] +: 16] = word[15:0];// SH
+        3'b010:     exp_res = word;        // SW
+        default: ;
+    endcase
+    
+    step_instruction();
+
+    if (read_mem(eff) !== exp_res || DUT.Datapath.d_out_PC !== pc_curr + 4) begin
+        $error("[FAIL STORE] rs1=%0d rs2=%0d f3=%b addr=%h | Exp: %h, Got: %h, Exp PC: %h, Got PC: %h",
+               item.rs1, item.rs2, item.func3, eff, exp_res, read_mem(eff),
+               pc_curr + 4, DUT.Datapath.d_out_PC);
+        fail_count++;
+    end
+endtask //verify_store
+
+
 // ---- Main verification flow ----
 
 initial begin
@@ -327,10 +414,16 @@ initial begin
     repeat(N_TEST) verify_imm_type ();
 
     $display("\n[PHASE 3] Executing U-Type Instructions...");
-    repeat (10) begin
+    repeat (N_TEST/2) begin
         verify_lui();
         verify_auipc();
     end
+
+    $display("\n[PHASE 4] Executing Randomized Load Instructions...");
+    repeat (N_TEST) verify_load();
+
+    $display("\n[PHASE 5] Executing Randomized Store Instructions...");
+    repeat (N_TEST) verify_store();
 
     if (fail_count == 0)
             $display(">>> ALL VERIFICATION TESTS PASSED! <<<\n");

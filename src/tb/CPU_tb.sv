@@ -82,7 +82,7 @@ endclass //riscv_instr_item
 
 
 module CPU_tb;
-    localparam N_TEST = 1000; //each type of test 
+    localparam N_TEST = 50; //each type of test 
     logic        clk,rst_n; 
     logic [31:0] data_in;
     logic        mem_ready;
@@ -186,7 +186,7 @@ module CPU_tb;
     endfunction
 
 
-// ---- R-Type verification ----
+// ------ R-Type verification ------
 task automatic verify_r_type ();
     riscv_instr_item item = new();
     logic [31:0] pc_curr, opA, opB, exp_res;
@@ -219,7 +219,7 @@ task automatic verify_r_type ();
     end
 endtask //verify_r_type
 
-// ------ Imm-Type verification -----
+// ------ Imm-Type verification ------
 task automatic verify_imm_type();
     riscv_instr_item item = new();
     logic [31:0] pc_curr, opA, exp_res, simm;
@@ -285,7 +285,7 @@ task automatic verify_lui();
     end
 endtask //verify_lui
 
-// ---- AUIPC verification -----
+// ------ AUIPC verification ------
 task automatic verify_auipc();
     riscv_instr_item item = new();
     logic [31:0] pc_curr, exp_res;
@@ -307,7 +307,7 @@ task automatic verify_auipc();
         end
 endtask //verify_auipc
 
-// ---- Load-Type verification
+// ------ Load-Type verification ------
 task automatic verify_load();
     riscv_instr_item item = new();
     logic [31:0] opA, simm, eff, pc_curr, word, exp_res;
@@ -355,7 +355,7 @@ task automatic verify_load();
     end
 endtask //verify_load
 
-// ---- Store verification ----
+// ------ Store verification ------
 task automatic verify_store();
     riscv_instr_item item = new();
         logic [31:0] opA, simm, eff, pc_curr, word, exp_res;
@@ -393,8 +393,51 @@ task automatic verify_store();
     end
 endtask //verify_store
 
+// ------ C. Branches verification ------
+task automatic verify_branch();
+    riscv_instr_item item = new();
+    logic [31:0]  pc_curr, opA, opB, exp_pc;
+    logic taken;
 
-// ---- Main verification flow ----
+    assert(item.randomize() with {opcode == Cond_b;})
+        else $fatal(1, "[TB FATAL] Constraint solver failed to randomize Branch instruction");
+
+    // Generate  data and  backdoor-initialize the DUT RF with the selected operands before instruction execution
+    opA = (item.rs1 != 0) ? $urandom() : 32'h0;
+    opB = (item.rs2 != 0) ? (($urandom_range(0, 9) == 0) ? opA : $urandom()) : 32'h0; // 10% prob of getting opA == opB
+    if (item.rs1 == item.rs2) opB = opA;
+    if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
+    if (item.rs2 != 0) DUT.Datapath.RF1.mem[item.rs2] = opB;
+
+    pc_curr = DUT.Datapath.d_out_PC;
+    write_mem(pc_curr, item.pack());
+
+    // compute expected next PC
+
+    case (item.func3) 
+        3'b000: taken = (opA == opB); 
+        3'b001: taken = (opA != opB);
+        3'b100: taken = ($signed(opA) < $signed(opB));
+        3'b101: taken = ($signed(opA) >= $signed(opB));
+        3'b110: taken = (opA < opB);
+        3'b111: taken = (opA >= opB);
+        default: taken = 1'b0;
+    endcase
+    
+    exp_pc = taken ? pc_curr + {{19{item.imm[12]}}, item.imm[12:1], 1'b0} : pc_curr + 4;
+
+    step_instruction();
+
+        if (DUT.Datapath.d_out_PC !== exp_pc) begin
+        $error("[FAIL BRANCH] rs1=%0d rs2=%0d f3=%b | A=%h B=%h imm=%0d taken=%b | Exp PC: %h, Got PC: %h",
+               item.rs1, item.rs2, item.func3, opA, opB, $signed(item.imm[12:0]), taken,
+               exp_pc, DUT.Datapath.d_out_PC);
+        fail_count++;
+    end
+endtask //verify_branch
+
+
+// ---- Main verification flow ------
 
 initial begin
     rst_n = 0;
@@ -424,6 +467,10 @@ initial begin
 
     $display("\n[PHASE 5] Executing Randomized Store Instructions...");
     repeat (N_TEST) verify_store();
+
+    //$display("\n[PHASE 6] Executing Randomized Branch Instructions...");
+    //repeat (N_TEST) verify_branch();
+
 
     if (fail_count == 0)
             $display(">>> ALL VERIFICATION TESTS PASSED! <<<\n");

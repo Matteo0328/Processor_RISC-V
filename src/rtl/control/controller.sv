@@ -80,7 +80,7 @@ always_comb begin : Mem_and_Reg_Ctrl
         exec1: begin
             if(opcode != Loads && opcode != Stores) begin
                 loadPC = 1'b1;
-                if (opcode != JAL && opcode != JALR) 
+                if (opcode != JAL && opcode != JALR && opcode != Cond_b) 
                     selINC_PC = 1'b1;
             end
         end
@@ -115,6 +115,7 @@ always_comb begin : ALU
     ldMEM           = 1'b0;
     ldPC            = 1'b0;
     selImm_PC       = 1'b0;
+    selIJump        = 1'b0;
     selZero_cond    = 1'b0;
     selNZero_cond   = 1'b0;
     case(pstate)

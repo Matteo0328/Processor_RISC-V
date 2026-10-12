@@ -12,7 +12,7 @@ module CPU (
 );
     //control signal
     logic [31:0] instr;
-    logic Type_R, Type_I, Type_S, Type_B, Type_U, Type_UJ; //Decoder
+    logic Type_R, Type_I, Type_S, Type_SB, Type_U, Type_UJ; //Decoder
     logic SgnE_8, SgnE_16, PT, ZrE_8, ZrE_16; // Extension
     logic ldALU, ldMEM, ldPC; // RF_IN
     logic ce, we_n; //RF

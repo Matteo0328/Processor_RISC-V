@@ -1,24 +1,68 @@
-# ModelSim
-sim/work/
-work/
-transcript
-*.wlf
-*.mpf
-*.mti
-modelsim.ini
+# =====================================================================
+# IL2234 project — WHITELIST-ONLY repository policy
+# ---------------------------------------------------------------------
+# Default: ignore EVERYTHING. Only the sanctioned folders and file types
+# below may be committed. This keeps Vivado/QuestaSim working dirs, logs,
+# toolchain build artifacts, and scratch files out of the repo — and
+# forbids anything at the top level except this file and README.md.
+#
+# Allowed:
+#   fpga/     -> *.sv only        (e.g. fpga/m1/, fpga/m4/)
+#   riscv/    -> *.sv only        (alu, rf, memsys, decoder, controller, top)
+#   constr/   -> *.xdc only       (Vivado constraints)
+#   firmware/ -> C/assembly build sources only:
+#                *.c *.h *.S *.s *.ld *.sh Makefile *.mk *.coe README.md
+#                (build artifacts *.o *.elf *.bin *.map *.d ... are ignored)
+#   report/   -> *.pdf only
+#   (.gitkeep is allowed everywhere so empty folders stay in the repo)
+# =====================================================================
 
-# Vivado
-.Xil/
-*.runs/
-*.cache/
-*.hw/
-*.ip_user_files/
-*.sim/
-*.jou
-*.log
-*.str
-*.bit
-*.bin
-*.dcp
-*.rpt
-*.hds
+# ── 1. Block the entire top level ────────────────────────────────────
+/*
+# ...then re-allow ONLY these top-level entries.
+!/.gitignore
+!/README.md
+!/fpga/
+!/riscv/
+!/constr/
+!/firmware/
+!/report/
+
+# ── 2. fpga/ — only .sv (any depth) ──────────────────────────────────
+fpga/**
+!fpga/**/
+!fpga/**/*.sv
+!fpga/**/.gitkeep
+
+# ── 3. riscv/ — only .sv (any depth) ─────────────────────────────────
+riscv/**
+!riscv/**/
+!riscv/**/*.sv
+!riscv/**/.gitkeep
+
+# ── 4. constr/ — only .xdc ───────────────────────────────────────────
+constr/**
+!constr/**/
+!constr/**/*.xdc
+!constr/**/.gitkeep
+
+# ── 5. firmware/ — C/assembly build sources only ─────────────────────
+firmware/**
+!firmware/**/
+!firmware/**/*.c
+!firmware/**/*.h
+!firmware/**/*.S
+!firmware/**/*.s
+!firmware/**/*.ld
+!firmware/**/*.sh
+!firmware/**/*.mk
+!firmware/**/*.coe
+!firmware/**/Makefile
+!firmware/**/README.md
+!firmware/**/.gitkeep
+
+# ── 6. report/ — only .pdf ───────────────────────────────────────────
+report/**
+!report/**/
+!report/**/*.pdf
+!report/**/.gitkeep

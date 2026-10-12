@@ -63,7 +63,7 @@ always_comb begin : sel_nstate
             nstate = fetch;
     endcase
 end
-//GESTIONE SEGNALI ABILITAZIONE REGISTRI E MEMORIE
+//Control Register and Memory signals
 always_comb begin : Mem_and_Reg_Ctrl
     selPC_addr = 1'b0;
     selALU_addr = 1'b0;
@@ -501,6 +501,15 @@ assert property (p_sync_read_en_exec2)
     endproperty
     assert property (p_sync_loadPC_exec2)
         else $error("[SYNC TIMING] loadPC in EXEC2 must be strictly gated by mem_ready");
+
+// Illegal instruction
+    property p_legal_opcode;
+        @(posedge clk) disable iff (!rst_n)
+        (pstate == exec1) |-> (opcode inside {R_to_R, Imm, LUI, AUIPC, Loads, Stores, Cond_b, JAL, JALR});
+    endproperty
+    assert property (p_legal_opcode)
+        else $warning("[CTRL] illegal opcode %b", opcode);
+
 `endif
 
 endmodule

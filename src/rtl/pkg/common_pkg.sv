@@ -1,3 +1,6 @@
+`ifndef COMMON_PKG_SV
+`define COMMON_PKG_SV
+
 // Definitions of shared data types and structures for the ALU
 package alu_pkg;
     typedef struct packed {
@@ -44,3 +47,5 @@ package ctrl_pkg;
     } instr_type_t;
 
 endpackage
+
+`endif

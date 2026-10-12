@@ -16,7 +16,7 @@ module memory_system (
 
     data_sram mem_unit(
         .clka(clk),
-        .addra(addr),
+        .addra(addr[15:2]),
         .dina(data_in),
         .douta(data_out),
         //enable the memory if we have a write or a read operation

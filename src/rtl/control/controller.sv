@@ -250,7 +250,7 @@ always_comb begin : Mem_Data_Formatting
     end
 end
 
-`ifndef __SYNTHESIS__
+`ifndef SYNTHESIS
 
 always_comb begin : Design_Assertions
     if (rst_n) begin

@@ -33,7 +33,7 @@ module RF #(
         
     end
     
-    `ifndef __SYNTHESIS__
+    `ifndef SYNTHESIS
     // The internal register x0 must ALWAYS remain 0
     always_ff @( posedge clk ) begin
         assert (mem[0] == 32'b0)

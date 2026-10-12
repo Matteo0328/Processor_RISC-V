@@ -43,7 +43,7 @@ assign mem_ready = (p_state == READ_2 || p_state == WRITE) ? 1'b1:1'b0;
 
 
 
-`ifndef __SYNTHESIS__
+`ifndef SYNTHESIS
 
     // ---------- Controller checks ----------
 

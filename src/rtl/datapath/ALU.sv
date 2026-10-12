@@ -49,7 +49,7 @@ module ALU #(
     end
 
 
-`ifndef __SYNTHESIS__
+`ifndef SYNTHESIS
 
 always_comb begin: ALU_assertions
     // Check ALU opcode validity

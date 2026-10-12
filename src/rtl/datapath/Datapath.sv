@@ -74,7 +74,7 @@ module Datapath (
     assign inst_out = d_out_IR;
 
     // validity of the PC
-    `ifndef __SYNTHESIS__
+    `ifndef SYNTHESIS
         always_ff @( posedge clk ) begin
             if (rst_n) begin
                 assert (!$isunknown(d_out_PC))

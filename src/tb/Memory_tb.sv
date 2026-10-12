@@ -179,6 +179,7 @@ module Memory_tb();
 
         repeat (N_TEST) begin
             wait(!reset_busy);
+            reset_hit = 0;
             @(negedge clk);
             
             addr = rand_addr();

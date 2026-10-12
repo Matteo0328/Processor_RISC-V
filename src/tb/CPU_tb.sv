@@ -589,6 +589,19 @@ module CPU_tb;
 
 
     // ------ Random asynchronous reset ----
+
+    task automatic check_reset_state();
+    int nz = 0;
+    for (int i = 0; i < 32; i++)
+        if (DUT.Datapath.RF1.mem[i] !== 32'h0) nz++;
+
+    if (DUT.Controller.pstate !== fetch || DUT.Datapath.d_out_PC !== 32'h0 ||DUT.Datapath.d_out_IR !== 32'h0 || nz != 0) begin
+        $error("[FAIL RESET] pstate=%0d PC=%h IR=%h RF nonzero=%0d", 
+                DUT.Controller.pstate, DUT.Datapath.d_out_PC, DUT.Datapath.d_out_IR, nz);
+        fail_count++;
+    end
+
+endtask
     initial begin
         wait (reset_en);
         forever begin
@@ -600,6 +613,7 @@ module CPU_tb;
             rst_n      = 0;
             write_mem(32'h0, 32'h0000_0013);   // after reset the CPU restarts from address 0: NOP
             #1;
+            check_reset_state();
 
             // send data to the CPU and try to write the memory
             repeat ($urandom_range(2, 5)) begin

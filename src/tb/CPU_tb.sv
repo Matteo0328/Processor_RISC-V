@@ -90,6 +90,7 @@ module CPU_tb;
     logic [31:0] data_out;
     logic [3:0]  write_en;
     logic        read_en;
+    logic [31:0] pc;
 
     int fail_count = 0;
 
@@ -98,7 +99,7 @@ module CPU_tb;
     bit reset_hit  = 0;   
     bit reset_busy = 0;   
 
-    CPU DUT (clk, rst_n, data_in, mem_ready, addr, data_out, write_en, read_en);
+    CPU DUT (clk, rst_n, data_in, mem_ready, addr, data_out, write_en, read_en, pc);
 
     //CPU_cov cov (clk, rst_n, DUT.Controller.pstate, DUT.Datapath.d_out_IR, DUT.Datapath.data_out_1_RF, DUT.Datapath.data_out_2_RF);
 
@@ -226,7 +227,7 @@ module CPU_tb;
         if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
         if (item.rs2 != 0) DUT.Datapath.RF1.mem[item.rs2] = opB;
 
-        pc_curr = DUT.Datapath.d_out_PC;
+        pc_curr = pc;
         write_mem(pc_curr, item.pack());
 
         //compute expected result
@@ -235,7 +236,7 @@ module CPU_tb;
         step_instruction();
         if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
 
-        if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || DUT.Datapath.d_out_PC !== pc_curr + 4) begin
+        if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || pc !== pc_curr + 4) begin
             $error("[FAIL R-TYPE] rd=%0d f7=%b f3=%b | Exp: %h, Got: %h",
                         item.rd, item.func7, item.func3, exp_res, DUT.Datapath.RF1.mem[item.rd]);
             fail_count++;
@@ -255,7 +256,7 @@ module CPU_tb;
         simm = {{20{item.imm[11]}}, item.imm[11:0]};
         if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
 
-        pc_curr = DUT.Datapath.d_out_PC;
+        pc_curr = pc;
         write_mem(pc_curr, item.pack());
 
         //compute expected result
@@ -280,7 +281,7 @@ module CPU_tb;
         step_instruction();
         if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
             
-        if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || DUT.Datapath.d_out_PC !== pc_curr + 4) begin
+        if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || pc !== pc_curr + 4) begin
                 $error("[FAIL I-TYPE] rd=%0d f3=%b | Exp: %h, Got: %h",
                     item.rd, item.func3, exp_res, DUT.Datapath.RF1.mem[item.rd]);
                 fail_count++;
@@ -295,7 +296,7 @@ module CPU_tb;
         assert (item.randomize() with {opcode == LUI; })
             else $fatal(1, "[TB FATAL] Constraint solver failed to randomize LUI instruction");
 
-        pc_curr = DUT.Datapath.d_out_PC;
+        pc_curr = pc;
         write_mem(pc_curr, item.pack());
 
         // compute expected result
@@ -304,9 +305,9 @@ module CPU_tb;
         step_instruction();
         if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
 
-        if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || DUT.Datapath.d_out_PC !== pc_curr + 4) begin
+        if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || pc !== pc_curr + 4) begin
             $error("[FAIL LUI] rd=%0d | Exp: %h, Got: %h, Exp PC: %h, Got PC: %h",
-                    item.rd, exp_res, DUT.Datapath.RF1.mem[item.rd], pc_curr + 4, DUT.Datapath.d_out_PC);
+                    item.rd, exp_res, DUT.Datapath.RF1.mem[item.rd], pc_curr + 4, pc);
             fail_count++;
         end
     endtask //verify_lui
@@ -318,7 +319,7 @@ module CPU_tb;
 
             assert (item.randomize() with {opcode == AUIPC; })
             else $fatal(1, "[TB FATAL] Constraint solver failed to randomize AUIPC instruction");
-        pc_curr = DUT.Datapath.d_out_PC;
+        pc_curr = pc;
         write_mem(pc_curr, item.pack());
 
         // compute expected result
@@ -327,9 +328,9 @@ module CPU_tb;
         step_instruction();
         if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
 
-        if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || DUT.Datapath.d_out_PC !== pc_curr + 4) begin
+        if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || pc !== pc_curr + 4) begin
                 $error("[FAIL AUIPC] rd=%0d | Exp: %h, Got: %h, Exp PC: %h, Got PC: %h",
-                    item.rd, exp_res, DUT.Datapath.RF1.mem[item.rd], pc_curr + 4, DUT.Datapath.d_out_PC);
+                    item.rd, exp_res, DUT.Datapath.RF1.mem[item.rd], pc_curr + 4, pc);
                 fail_count++;
             end
     endtask //verify_auipc
@@ -352,7 +353,7 @@ module CPU_tb;
         if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
 
 
-        pc_curr = DUT.Datapath.d_out_PC;
+        pc_curr = pc;
         write_mem(eff, rand_operand());
         write_mem(pc_curr, item.pack());
         word = read_mem(eff);
@@ -375,10 +376,10 @@ module CPU_tb;
         step_instruction();
         if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
 
-        if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || DUT.Datapath.d_out_PC !== pc_curr + 4) begin
+        if (DUT.Datapath.RF1.mem[item.rd] !== exp_res ||pc !== pc_curr + 4) begin
             $error("[FAIL LOAD] rd=%0d rs1=%0d f3=%b addr=%h | Exp: %h, Got: %h, Exp PC: %h, Got PC: %h",
                 item.rd, item.rs1, item.func3, eff, exp_res, DUT.Datapath.RF1.mem[item.rd],
-                pc_curr + 4, DUT.Datapath.d_out_PC);
+                pc_curr + 4, pc);
             fail_count++;
         end
     endtask //verify_load
@@ -399,7 +400,7 @@ module CPU_tb;
         if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
         word = (item.rs2 != 0) ? DUT.Datapath.RF1.mem[item.rs2] : 32'h0;
 
-        pc_curr = DUT.Datapath.d_out_PC;
+        pc_curr = pc;
         write_mem(eff, rand_operand());
         write_mem(pc_curr, item.pack());
 
@@ -415,10 +416,10 @@ module CPU_tb;
         step_instruction();
         if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
 
-        if (read_mem(eff) !== exp_res || DUT.Datapath.d_out_PC !== pc_curr + 4) begin
+        if (read_mem(eff) !== exp_res || pc !== pc_curr + 4) begin
             $error("[FAIL STORE] rs1=%0d rs2=%0d f3=%b addr=%h | Exp: %h, Got: %h, Exp PC: %h, Got PC: %h",
                 item.rs1, item.rs2, item.func3, eff, exp_res, read_mem(eff),
-                pc_curr + 4, DUT.Datapath.d_out_PC);
+                pc_curr + 4, pc);
             fail_count++;
         end
     endtask //verify_store
@@ -439,7 +440,7 @@ module CPU_tb;
         if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
         if (item.rs2 != 0) DUT.Datapath.RF1.mem[item.rs2] = opB;
 
-        pc_curr = DUT.Datapath.d_out_PC;
+        pc_curr = pc;
         write_mem(pc_curr, item.pack());
 
         // compute expected next PC
@@ -459,10 +460,10 @@ module CPU_tb;
         step_instruction();
         if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
 
-            if (DUT.Datapath.d_out_PC !== exp_pc) begin
+            if (pc !== exp_pc) begin
             $error("[FAIL BRANCH] rs1=%0d rs2=%0d f3=%b | A=%h B=%h imm=%0d taken=%b | Exp PC: %h, Got PC: %h",
                 item.rs1, item.rs2, item.func3, opA, opB, $signed(item.imm[12:0]), taken,
-                exp_pc, DUT.Datapath.d_out_PC);
+                exp_pc, pc);
             fail_count++;
         end
     endtask //verify_branch
@@ -475,7 +476,7 @@ module CPU_tb;
         assert (item.randomize() with { opcode == JAL; imm[1:0] == 2'b00;})
                 else $fatal(1, "[TB FATAL] Constraint solver failed to randomize JAL instruction");
 
-        pc_curr = DUT.Datapath.d_out_PC;
+        pc_curr = pc;
         write_mem(pc_curr, item.pack());
 
         //compute expected result
@@ -485,10 +486,10 @@ module CPU_tb;
         step_instruction();
         if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
 
-        if (DUT.Datapath.RF1.mem[item.rd] !== exp_rd || DUT.Datapath.d_out_PC !== exp_pc) begin
+        if (DUT.Datapath.RF1.mem[item.rd] !== exp_rd || pc !== exp_pc) begin
             $error("[FAIL JAL] rd=%0d imm=%0d | Exp rd: %h, Got: %h, Exp PC: %h, Got PC: %h",
                 item.rd, $signed(item.imm[20:0]), exp_rd, DUT.Datapath.RF1.mem[item.rd],
-                exp_pc, DUT.Datapath.d_out_PC);
+                exp_pc, pc);
             fail_count++;
         end   
     endtask //verify_jal
@@ -505,7 +506,7 @@ module CPU_tb;
         opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
         if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
 
-        pc_curr = DUT.Datapath.d_out_PC;
+        pc_curr = pc;
         write_mem(pc_curr, item.pack());
 
         //compute expected result
@@ -515,10 +516,10 @@ module CPU_tb;
         step_instruction();
         if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
 
-        if (DUT.Datapath.RF1.mem[item.rd] !== exp_rd || DUT.Datapath.d_out_PC !== exp_pc) begin
+        if (DUT.Datapath.RF1.mem[item.rd] !== exp_rd || pc !== exp_pc) begin
             $error("[FAIL JALR] rd=%0d rs1=%0d | A=%h imm=%0d | Exp rd: %h, Got: %h, Exp PC: %h, Got PC: %h",
                 item.rd, item.rs1, opA, $signed(item.imm[11:0]), exp_rd, DUT.Datapath.RF1.mem[item.rd],
-                exp_pc, DUT.Datapath.d_out_PC);
+                exp_pc, pc);
             fail_count++;
         end 
     endtask //verify_jalr
@@ -595,9 +596,9 @@ module CPU_tb;
     for (int i = 0; i < 32; i++)
         if (DUT.Datapath.RF1.mem[i] !== 32'h0) nz++;
 
-    if (DUT.Controller.pstate !== fetch || DUT.Datapath.d_out_PC !== 32'h0 ||DUT.Datapath.d_out_IR !== 32'h0 || nz != 0) begin
+    if (DUT.Controller.pstate !== fetch || pc !== 32'h0 ||DUT.Datapath.d_out_IR !== 32'h0 || nz != 0) begin
         $error("[FAIL RESET] pstate=%0d PC=%h IR=%h RF nonzero=%0d", 
-                DUT.Controller.pstate, DUT.Datapath.d_out_PC, DUT.Datapath.d_out_IR, nz);
+                DUT.Controller.pstate, pc, DUT.Datapath.d_out_IR, nz);
         fail_count++;
     end
 
@@ -628,10 +629,10 @@ endtask
                 for (int i = 0; i < 32; i++)
                     if (DUT.Datapath.RF1.mem[i] !== 32'h0) nz++;
                 
-                if (DUT.Controller.pstate !== fetch || DUT.Datapath.d_out_PC !== 32'h0 ||
+                if (DUT.Controller.pstate !== fetch || pc !== 32'h0 ||
                     DUT.Datapath.d_out_IR !== 32'h0 || nz != 0) begin
                     $error("[FAIL RESET] pstate=%0d PC=%h IR=%h RF nonzero=%0d mem_ready=%b",
-                        DUT.Controller.pstate, DUT.Datapath.d_out_PC, DUT.Datapath.d_out_IR, nz, mem_ready);
+                        DUT.Controller.pstate, pc, DUT.Datapath.d_out_IR, nz, mem_ready);
                     fail_count++;
                 end
             end

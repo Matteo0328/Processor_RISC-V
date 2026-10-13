@@ -20,7 +20,8 @@ module Datapath (
     input logic loadIR, loadPC,
     output logic [31:0] addr, data_out, //to memory
     output logic [3:0] write_en,
-    output logic [31:0] inst_out //to controller
+    output logic [31:0] inst_out, //to controller
+    output logic [31:0] d_out_PC //to CPU
 );  
     //RF signals
     logic [31:0] data_in_RF, data_out_1_RF, data_out_2_RF;
@@ -35,7 +36,7 @@ module Datapath (
     // Extension signals
     logic [31:0] out_ext;
     // PC signals
-    logic [31:0] d_in_PC, d_out_PC;
+    logic [31:0] d_in_PC;
 
 
     //other internal signals

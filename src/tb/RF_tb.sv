@@ -15,6 +15,10 @@ module RF_tb;
     // Reference memory
     logic [BW-1:0] expected_mem [0:DEPTH-1];
 
+    // Verification statistics counters
+    int error_count = 0;
+    int test_count  = 0;
+
     RF #(
         .BW(BW),
         .DEPTH(DEPTH)
@@ -32,47 +36,54 @@ module RF_tb;
         .data_out_2(data_out_2)
     );
 
-  task check_read( //check if read = expected
-    input logic [$clog2(DEPTH)-1:0] addr1,
-    input logic [$clog2(DEPTH)-1:0] addr2,
-    input bit                       is_fatal = 1'b0 // 0: $error (default), 1: $fatal
-);
-    logic [BW-1:0] expected1;
-    logic [BW-1:0] expected2;
+    task check_read( //check if read = expected
+        input logic [$clog2(DEPTH)-1:0] addr1,
+        input logic [$clog2(DEPTH)-1:0] addr2,
+        input bit                       is_fatal = 1'b0 // 0: $error (default), 1: $fatal
+    );
+        logic [BW-1:0] expected1;
+        logic [BW-1:0] expected2;
 
-    begin
-        if (DUT1.mem[0] !== '0) begin
-            $fatal(1, "HARDWARE VIOLATION: Internal register mem[0] was overwritten!");
-        end
-        if (addr1 == 0 || chip_en == 0 )
-            expected1 = '0;
-        else
-            expected1 = expected_mem[addr1];
+        begin
+            test_count++;
 
-        if (addr2 == 0 || chip_en == 0)
-            expected2 = '0;
-        else
-            expected2 = expected_mem[addr2];
+            // Drive read addresses and allow combinational read propagation
+            read_addr_1 = addr1;
+            read_addr_2 = addr2;
+            #1;
 
-        // Check read 1
-        if (data_out_1 != expected1) begin
-            if (is_fatal)
-                $fatal(1, "read1 addr=%0d DUT=%h EXPECTED=%h", addr1, data_out_1, expected1);
+            if (DUT1.mem[0] !== '0) begin
+                $fatal(1, "HARDWARE VIOLATION: Internal register mem[0] was overwritten! Value: 0x%0h", DUT1.mem[0]);
+            end
+            if (addr1 == 0 || chip_en == 0 )
+                expected1 = '0;
             else
-                $error("read1 addr=%0d DUT=%h EXPECTED=%h", addr1, data_out_1, expected1);
-        end
+                expected1 = expected_mem[addr1];
 
-        // Check read 2
-        if (data_out_2 != expected2) begin
-            if (is_fatal)
-                $fatal(1, "read2 addr=%0d DUT=%h EXPECTED=%h", addr2, data_out_2, expected2);
+            if (addr2 == 0 || chip_en == 0)
+                expected2 = '0;
             else
-                $error("read2 addr=%0d DUT=%h EXPECTED=%h", addr2, data_out_2, expected2);
+                expected2 = expected_mem[addr2];
+
+            // Check read 1
+            if (data_out_1 !== expected1) begin
+                error_count++;
+                if (is_fatal)
+                    $fatal(1, "read1 addr=%0d DUT=%h EXPECTED=%h", addr1, data_out_1, expected1);
+                else
+                    $error("read1 addr=%0d DUT=%h EXPECTED=%h", addr1, data_out_1, expected1);
+            end
+
+            // Check read 2
+            if (data_out_2 !== expected2) begin
+                error_count++;
+                if (is_fatal)
+                    $fatal(1, "read2 addr=%0d DUT=%h EXPECTED=%h", addr2, data_out_2, expected2);
+                else
+                    $error("read2 addr=%0d DUT=%h EXPECTED=%h", addr2, data_out_2, expected2);
+            end
         end
-    end
-endtask
-
-
+    endtask
 
     initial begin //clk
         clk = 0;
@@ -80,8 +91,8 @@ endtask
     end
 
     initial begin
+        rst_n = 0;
 
-        rst_n = 1;
         write_en_n = 1;
         chip_en = 0;
 
@@ -94,42 +105,60 @@ endtask
             expected_mem[i] = '0;
         end
 
+        #25;
+        @(negedge clk); 
+        rst_n = 1;
 
         $display("=================================");
-        $display("STARTING TEST-BENCH");
+        $display("      STARTING TEST-BENCH");
         $display("=================================");
-        #12;
-        
+
         for (int rep = 0; rep < N_TEST; rep ++) begin
             case (rep)
                 0: begin //reset test
-                    $display("[SPECIFIC TEST] Reset test");
+                    $display("----- Reset test (testing write attempt during reset) -----");
                     rst_n = 0;
                     chip_en = 1;
+
+                    // Stimulate write during reset to ensure reset has absolute priority
+                    write_en_n = 0;
+                    write_addr = 3;
+                    data_in = '1;
+
                     for (int i = 0; i < DEPTH; i++) begin
                         expected_mem[i] = '0;
                     end 
-                    #1;
+                    @(posedge clk); #1;
+
                     //check the entire memory
                     for (int i = 0; i < DEPTH; i++) begin
-                        check_read(i,i,1); 
+                        check_read(i, i, 1); 
                     end 
+
+                    // Cleanly deassert write enable before releasing reset
+                    write_en_n = 1;
+                    write_addr = '0;
+                    data_in = '0;
+                    rst_n = 1;
+                    @(posedge clk);
                 end
+
                 1: begin //standby test
-                    $display("[SPECIFIC TEST] Standby test");                  
+                    $display("----- Standby test -----");                  
                     rst_n = 1;
                     chip_en = 0;
+                    write_en_n = 1;
                     @(posedge clk); #1;     
                     check_read(1, 2, 1);
                 end
 
                 2: begin // Specific Case: Write to address 0
-                    $display("[SPECIFIC TEST] Attempting to write to address 0");
+                    $display("----- Attempting to write to address 0 -----");
                     rst_n = 1; 
                     chip_en = 1; 
                     write_en_n = 0;
                     write_addr = 0; 
-                    data_in = 8'hFF; // Try forcing all 1s
+                    data_in = '1; // Try forcing all 1s
                     read_addr_1 = 0; 
                     read_addr_2 = 0;
                     
@@ -138,7 +167,7 @@ endtask
                 end
 
                 3: begin // Specific Case: Simultaneous Read/Write
-                    $display("[SPECIFIC TEST] Simultaneous Read and Write (Address 5)");
+                    $display("----- Simultaneous Read and Write (Address 5) -----");
                     rst_n = 1;
                     chip_en = 1; 
                     write_en_n = 0;
@@ -154,7 +183,7 @@ endtask
                 end
 
                 4: begin // Specific Case: Write blocked in Standby mode
-                    $display("[SPECIFIC TEST] Attempting to write in Standby mode");
+                    $display("----- Attempting to write in Standby mode -----");
                     rst_n = 1; 
                     chip_en = 0; 
                     write_en_n = 0; // Chip disabled
@@ -162,7 +191,7 @@ endtask
                     data_in = 8'hCC;
                     read_addr_1 = 3; 
                     read_addr_2 = 3;
-                                        
+                                            
                     @(posedge clk); #1;
                     check_read(3, 3, 1); // Must read 0 because chip_en = 0
                 end
@@ -172,22 +201,36 @@ endtask
                     rand_mode = $urandom_range(0, 99);
 
                     if (rand_mode < 1) begin //1% probability of random reset
-                        $display("[RANDOM TEST] Triggering random Reset");
+                        $display("----- Triggering random Reset -----");
                         rst_n = 0;
                         chip_en = 1; 
                         
+                        // Stimulate arbitrary write and read signals during reset
+                        write_en_n  = $urandom_range(0, 1);
+                        write_addr  = $urandom_range(0, DEPTH-1);
+                        data_in     = $urandom;
+                        read_addr_1 = $urandom_range(0, DEPTH-1);
+                        read_addr_2 = $urandom_range(0, DEPTH-1);
+
+                        // All hardware registers will be cleared on the clock edge
                         for (int i = 0; i < DEPTH; i++) begin
                             expected_mem[i] = '0;
                         end 
 
-                        #1;
+                        @(posedge clk); #1;
                         for (int i = 0; i < DEPTH; i++) begin
-                        check_read(i,i,1); // check the entire memory
+                            check_read(i, i, 1); // check the entire memory
                         end
+
+                        // Deassert write enable before exiting reset to prevent accidental writes
+                        write_en_n = 1;
+                        write_addr = '0;
+                        data_in    = '0;
+                        rst_n      = 1;
                         @(posedge clk); 
                         
                     end else if (rand_mode < 5) begin //4% probability of random Standby
-                        $display("[RANDOM TEST] Triggering random Standby");
+                        $display("----- Triggering random Standby -----");
                         rst_n = 1;
                         chip_en = 0; // Disable chip
                         write_en_n = $urandom_range(0, 1); // Try random write en
@@ -195,7 +238,7 @@ endtask
                         write_addr = $urandom_range(0, DEPTH-1);
                         read_addr_1 = $urandom_range(0, DEPTH-1);
                         read_addr_2 = $urandom_range(0, DEPTH-1);
-                        data_in = $urandom_range(0, 2**8-1);
+                        data_in = $urandom;
                         
                         // We do NOT update expected_mem because writes are ignored in standby
 
@@ -207,8 +250,8 @@ endtask
                         rst_n = 1;
                         chip_en = 1; 
 
-                        write_en_n = $urandom_range(0,1);
-                        data_in = $urandom_range(0, 2**8-1);
+                        write_en_n = $urandom_range(0, 1);
+                        data_in = $urandom;
                         write_addr = $urandom_range(0, DEPTH-1);
                         read_addr_1 = $urandom_range(0, DEPTH-1);
                         read_addr_2 = $urandom_range(0, DEPTH-1);
@@ -224,9 +267,20 @@ endtask
                 end
             endcase
         end
+
         $display("");
         $display("=================================");
-        $display("TEST COMPLETE");
+        $display("          TEST COMPLETE          ");
+        $display("=================================");
+        $display("Total checks performed : %0d", test_count);
+        $display("Total errors detected  : %0d", error_count);
+
+        if (error_count == 0) begin
+            $display("STATUS: ALL TESTS PASSED");
+        end else begin
+            $display("STATUS: TEST FAILED WITH %0d ERRORS", error_count);
+            $fatal(1, "[TB FAILURE] Register file verification failed.");
+        end
         $display("=================================");
 
         $stop;

@@ -67,9 +67,9 @@ module Memory_tb();
     // ------ Reference model update ----
 
     always_ff @(posedge clk) begin : ref_update
-    if (rst_n)
-        for (int i = 0; i < 4; i++)
-            if (write_en[i]) ref_mem[addr[15:2]][8*i +: 8] = data_in[8*i +: 8];
+        if (rst_n)
+            for (int i = 0; i < 4; i++)
+                if (write_en[i]) ref_mem[addr[15:2]][8*i +: 8] = data_in[8*i +: 8];
     end
 
     // ------ Reset -----

@@ -2,18 +2,16 @@
 # IL2234 project — WHITELIST-ONLY repository policy
 # ---------------------------------------------------------------------
 # Default: ignore EVERYTHING. Only the sanctioned folders and file types
-# below may be committed. This keeps Vivado/QuestaSim working dirs, logs,
-# toolchain build artifacts, and scratch files out of the repo — and
-# forbids anything at the top level except this file and README.md.
+# below may be committed. This keeps Vivado/QuestaSim working dirs (vivado/,
+# work/), logs, toolchain build artifacts and scratch files out of the repo.
 #
 # Allowed:
-#   fpga/     -> *.sv only        (e.g. fpga/m1/, fpga/m4/)
-#   riscv/    -> *.sv only        (alu, rf, memsys, decoder, controller, top)
-#   constr/   -> *.xdc only       (Vivado constraints)
-#   firmware/ -> C/assembly build sources only:
+#   src/      -> *.sv *.svh *.xdc   (rtl/, tb/, constrs/ at any depth)
+#   sim/      -> *.do *.tcl *.f *.sv (QuestaSim scripts / file lists)
+#   Firmware/ -> C/assembly build sources only:
 #                *.c *.h *.S *.s *.ld *.sh Makefile *.mk *.coe README.md
 #                (build artifacts *.o *.elf *.bin *.map *.d ... are ignored)
-#   report/   -> *.pdf only
+#   Urbana.xdc (top-level board constraints)
 #   (.gitkeep is allowed everywhere so empty folders stay in the repo)
 # =====================================================================
 
@@ -22,47 +20,39 @@
 # ...then re-allow ONLY these top-level entries.
 !/.gitignore
 !/README.md
-!/fpga/
-!/riscv/
-!/constr/
-!/firmware/
-!/report/
+!/Urbana.xdc
+!/src/
+!/sim/
+!/Firmware/
 
-# ── 2. fpga/ — only .sv (any depth) ──────────────────────────────────
-fpga/**
-!fpga/**/
-!fpga/**/*.sv
-!fpga/**/.gitkeep
+# ── 2. src/ — HDL sources and constraints (any depth) ────────────────
+src/**
+!src/**/
+!src/**/*.sv
+!src/**/*.svh
+!src/**/*.xdc
+!src/**/.gitkeep
 
-# ── 3. riscv/ — only .sv (any depth) ─────────────────────────────────
-riscv/**
-!riscv/**/
-!riscv/**/*.sv
-!riscv/**/.gitkeep
+# ── 3. sim/ — simulation scripts ─────────────────────────────────────
+sim/**
+!sim/**/
+!sim/**/*.do
+!sim/**/*.tcl
+!sim/**/*.f
+!sim/**/*.sv
+!sim/**/.gitkeep
 
-# ── 4. constr/ — only .xdc ───────────────────────────────────────────
-constr/**
-!constr/**/
-!constr/**/*.xdc
-!constr/**/.gitkeep
-
-# ── 5. firmware/ — C/assembly build sources only ─────────────────────
-firmware/**
-!firmware/**/
-!firmware/**/*.c
-!firmware/**/*.h
-!firmware/**/*.S
-!firmware/**/*.s
-!firmware/**/*.ld
-!firmware/**/*.sh
-!firmware/**/*.mk
-!firmware/**/*.coe
-!firmware/**/Makefile
-!firmware/**/README.md
-!firmware/**/.gitkeep
-
-# ── 6. report/ — only .pdf ───────────────────────────────────────────
-report/**
-!report/**/
-!report/**/*.pdf
-!report/**/.gitkeep
+# ── 4. Firmware/ — C/assembly build sources only ─────────────────────
+Firmware/**
+!Firmware/**/
+!Firmware/**/*.c
+!Firmware/**/*.h
+!Firmware/**/*.S
+!Firmware/**/*.s
+!Firmware/**/*.ld
+!Firmware/**/*.sh
+!Firmware/**/*.mk
+!Firmware/**/*.coe
+!Firmware/**/Makefile
+!Firmware/**/README.md
+!Firmware/**/.gitkeep

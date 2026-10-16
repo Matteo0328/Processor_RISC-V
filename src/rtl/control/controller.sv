@@ -400,107 +400,106 @@ end
 // ----Temporal Assertions----
 
 //Asynchronous reset verification
-property p_fsm_reset;
-    @(posedge clk) (!rst_n) |-> (pstate == fetch);
-endproperty
-assert property (p_fsm_reset) 
-    else $error("[FSM RESET] FSM failed to reset into FETCH state on reset assertion");
+    property p_fsm_reset;
+        @(posedge clk) (!rst_n) |-> (pstate == fetch);
+    endproperty
+    assert property (p_fsm_reset) 
+        else $error("[FSM RESET] FSM failed to reset into FETCH state on reset assertion");
 
 //Forward Transitions
 
-//FETCH -> EXEC1
-property p_fetch_to_exec1;
-    @(posedge clk) disable iff (!rst_n)
-    (pstate == fetch && mem_ready) |=> (pstate == exec1);
-endproperty
-assert property (p_fetch_to_exec1)
-    else $error("[FSM TRANS] Failed to advance from FETCH to EXEC1 upon mem_ready assertion");
+    //FETCH -> EXEC1
+    property p_fetch_to_exec1;
+        @(posedge clk) disable iff (!rst_n)
+        (pstate == fetch && mem_ready) |=> (pstate == exec1);
+    endproperty
+    assert property (p_fetch_to_exec1)
+        else $error("[FSM TRANS] Failed to advance from FETCH to EXEC1 upon mem_ready assertion");
 
-//EXEC1 -> EXEC2
-property p_exec1_to_exec2;
-    @(posedge clk) disable iff (!rst_n)
-    (pstate == exec1 && (opcode inside {Loads, Stores})) |=> (pstate == exec2);
-endproperty
-assert property (p_exec1_to_exec2)
-    else $error("[FSM TRANS] Multicycle instruction (Load/Store) failed to enter EXEC2 from EXEC1");    
+    //EXEC1 -> EXEC2
+    property p_exec1_to_exec2;
+        @(posedge clk) disable iff (!rst_n)
+        (pstate == exec1 && (opcode inside {Loads, Stores})) |=> (pstate == exec2);
+    endproperty
+    assert property (p_exec1_to_exec2)
+        else $error("[FSM TRANS] Multicycle instruction (Load/Store) failed to enter EXEC2 from EXEC1");    
 
-//EXEC1 -> FETCH
-property p_exec1_to_fetch;
-    @(posedge clk) disable iff (!rst_n)
-    (pstate == exec1 && !(opcode inside {Loads, Stores})) |=> (pstate == fetch);
-endproperty
-assert property (p_exec1_to_fetch)
-    else $error("[FSM TRANS] Single-cycle instruction did not return to FETCH after EXEC1");
+    //EXEC1 -> FETCH
+    property p_exec1_to_fetch;
+        @(posedge clk) disable iff (!rst_n)
+        (pstate == exec1 && !(opcode inside {Loads, Stores})) |=> (pstate == fetch);
+    endproperty
+    assert property (p_exec1_to_fetch)
+        else $error("[FSM TRANS] Single-cycle instruction did not return to FETCH after EXEC1");
 
-//EXEC2 -> FETCH
-property p_exec2_to_fetch;
-    @(posedge clk) disable iff (!rst_n)
-    (pstate == exec2 && mem_ready) |=> (pstate == fetch);
-endproperty
-assert property (p_exec2_to_fetch)
-    else $error("[FSM TRANS] Multicycle instruction failed to return to FETCH from EXEC2 upon mem_ready");
+    //EXEC2 -> FETCH
+    property p_exec2_to_fetch;
+        @(posedge clk) disable iff (!rst_n)
+        (pstate == exec2 && mem_ready) |=> (pstate == fetch);
+    endproperty
+    assert property (p_exec2_to_fetch)
+        else $error("[FSM TRANS] Multicycle instruction failed to return to FETCH from EXEC2 upon mem_ready");
 
 
 // State hold /stall verification (mem_ready low)
 
-// FETCH hold
-property p_hold_fetch;
-    @(posedge clk) disable iff (!rst_n)
-    (pstate == fetch && !mem_ready) |=> (pstate == fetch);
-endproperty
-assert property (p_hold_fetch)
-    else $error("[FSM STALL] FSM left FETCH state prematurely while mem_ready was deasserted");
+    // FETCH hold
+    property p_hold_fetch;
+        @(posedge clk) disable iff (!rst_n)
+        (pstate == fetch && !mem_ready) |=> (pstate == fetch);
+    endproperty
+    assert property (p_hold_fetch)
+        else $error("[FSM STALL] FSM left FETCH state prematurely while mem_ready was deasserted");
 
-// EXEC2 hold
-property p_hold_exec2;
-    @(posedge clk) disable iff (!rst_n)
-    (pstate == exec2 && !mem_ready) |=> (pstate == exec2);
-endproperty
-assert property (p_hold_exec2)
-    else $error("[FSM STALL] FSM left EXEC2 state prematurely while mem_ready was deasserted");
+    // EXEC2 hold
+    property p_hold_exec2;
+        @(posedge clk) disable iff (!rst_n)
+        (pstate == exec2 && !mem_ready) |=> (pstate == exec2);
+    endproperty
+    assert property (p_hold_exec2)
+        else $error("[FSM STALL] FSM left EXEC2 state prematurely while mem_ready was deasserted");
 
 // Handshake and latch synchronization 
 
-// IR latch
-
-property p_sync_loadIR;
-    @(posedge clk) disable iff(!rst_n)
-    (pstate == fetch) ? (loadIR == mem_ready) : (!loadIR);
-endproperty
-assert property (p_sync_loadIR)
-    else $error("[SYNC TIMING] loadIR must be asserted if and only if mem_ready is high in FETCH");
-
-// read_en must drop to 0 when exiting FETCH
-property p_sync_read_en_drop;
-    @(posedge clk) disable iff (!rst_n)
-    (pstate == fetch && mem_ready) |=> (!read_en);
-endproperty
-assert property (p_sync_read_en_drop)
-    else $error("[SYNC TIMING] read_en remained high when entering EXEC1");
-
-// in EXEC2 read_en must be high if and only if it is a Load
-property p_sync_read_en_exec2;
-    @(posedge clk) disable iff (!rst_n)
-    (pstate == exec2) |-> (read_en == (opcode == Loads));
-endproperty
-assert property (p_sync_read_en_exec2)
-    else $error("[SYNC TIMING] read_en mismatch in EXEC2: expected high only for Loads!");
-
-// PCr update timing during EXEC1
-    property p_sync_loadPC_exec1;
-        @(posedge clk) disable iff (!rst_n)
-        (pstate == exec1) |-> (loadPC == !(opcode inside {Loads, Stores}));
+    // IR latch
+    property p_sync_loadIR;
+        @(posedge clk) disable iff(!rst_n)
+        (pstate == fetch) ? (loadIR == mem_ready) : (!loadIR);
     endproperty
-    assert property (p_sync_loadPC_exec1)
-        else $error("[SYNC TIMING] loadPC assertion mismatch during EXEC1 stage");
+    assert property (p_sync_loadIR)
+        else $error("[SYNC TIMING] loadIR must be asserted if and only if mem_ready is high in FETCH");
 
-// PC update timing during EXEC2: must occur only upon mem_ready
-    property p_sync_loadPC_exec2;
+    // read_en must drop to 0 when exiting FETCH
+    property p_sync_read_en_drop;
         @(posedge clk) disable iff (!rst_n)
-        (pstate == exec2) |-> (loadPC == mem_ready);
+        (pstate == fetch && mem_ready) |=> (!read_en);
     endproperty
-    assert property (p_sync_loadPC_exec2)
-        else $error("[SYNC TIMING] loadPC in EXEC2 must be strictly gated by mem_ready");
+    assert property (p_sync_read_en_drop)
+        else $error("[SYNC TIMING] read_en remained high when entering EXEC1");
+
+    // in EXEC2 read_en must be high if and only if it is a Load
+    property p_sync_read_en_exec2;
+        @(posedge clk) disable iff (!rst_n)
+        (pstate == exec2) |-> (read_en == (opcode == Loads));
+    endproperty
+    assert property (p_sync_read_en_exec2)
+        else $error("[SYNC TIMING] read_en mismatch in EXEC2: expected high only for Loads!");
+
+    // PCr update timing during EXEC1
+        property p_sync_loadPC_exec1;
+            @(posedge clk) disable iff (!rst_n)
+            (pstate == exec1) |-> (loadPC == !(opcode inside {Loads, Stores}));
+        endproperty
+        assert property (p_sync_loadPC_exec1)
+            else $error("[SYNC TIMING] loadPC assertion mismatch during EXEC1 stage");
+
+    // PC update timing during EXEC2: must occur only upon mem_ready
+        property p_sync_loadPC_exec2;
+            @(posedge clk) disable iff (!rst_n)
+            (pstate == exec2) |-> (loadPC == mem_ready);
+        endproperty
+        assert property (p_sync_loadPC_exec2)
+            else $error("[SYNC TIMING] loadPC in EXEC2 must be strictly gated by mem_ready");
 
 // Illegal instruction
     property p_legal_opcode;

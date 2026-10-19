@@ -195,6 +195,7 @@ module CPU_tb;
         endcase
     endfunction
 
+    // random data generation (corner cases biased)
     function automatic logic [31:0] rand_operand();
         randcase
             1:  return 32'h0000_0000;               // Zero

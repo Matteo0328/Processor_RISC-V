@@ -53,20 +53,20 @@ module ALU #(
 
 always_comb begin: ALU_assertions
     // Check ALU opcode validity
-    assert (ALU_op inside {ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND, PASS_B}) 
+    assert #0 (ALU_op inside {ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND, PASS_B}) 
         else   $error("[ALU] Unknown ALU operation: %b", ALU_op);
     
 
     if (ALU_op inside {SLT, SLTU}) begin
         // Upper 31 bits must always be zero
-        assert (out[31:1] == 31'b0)
+        assert #0 (out[31:1] == 31'b0)
             else $error("[ALU ERROR] Upper 31 bits must be zero for SLT/SLTU! Out: 0x%08h", out);
     end
 
     //Check zero and negative flag validity
-    assert (flags.zero == (out == 32'b0))
+    assert #0 (flags.zero == (out == 32'b0))
         else $error("[ALU FLAG ERROR] Zero flag mismatch! Flag: %b, ALU_out: 0x%08h", flags.zero, out);
-    assert (flags.negative == (out[BW-1]))
+    assert #0 (flags.negative == (out[BW-1]))
         else $error("[ALU FLAG ERROR] Negative flag mismatch! Flag: %b, ALU_out: 0x%08h", flags.negative, out[BW-1]);       
 end
 `endif 

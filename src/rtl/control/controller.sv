@@ -38,7 +38,7 @@ assign func7   = instr[31:25];
 state_t pstate, nstate;
 
 
-
+// update pstate
 always_ff @( posedge clk or negedge rst_n ) begin
     if (!rst_n)
         pstate <= fetch;
@@ -46,13 +46,14 @@ always_ff @( posedge clk or negedge rst_n ) begin
         pstate <= nstate;
 end
 
+// select the next state based on the opcode
 always_comb begin : sel_nstate
     nstate = fetch;
     case (pstate)
         fetch: 
             nstate = (mem_ready) ? exec1:fetch;
         exec1: begin
-            case (opcode) //check the opcode
+            case (opcode) //exec2 only for Loads and Stores
                 Loads:      nstate = exec2;
                 Stores:     nstate = exec2;
                 default:    nstate = fetch;
@@ -63,14 +64,13 @@ always_comb begin : sel_nstate
             nstate = fetch;
     endcase
 end
+
 //Control Register and Memory signals
 always_comb begin : Mem_and_Reg_Ctrl
-    selPC_addr = 1'b0;
-    selALU_addr = 1'b0;
+    selPC_addr = 1'b0; selALU_addr = 1'b0;
     read_en = 1'b0;
     selINC_PC = 1'b0;
-    loadIR = 1'b0;
-    loadPC = 1'b0;
+    loadIR = 1'b0; loadPC = 1'b0;
     case (pstate)
         fetch: begin
             selPC_addr  = 1'b1;
@@ -79,15 +79,16 @@ always_comb begin : Mem_and_Reg_Ctrl
         end
         exec1: begin
             if(opcode != Loads && opcode != Stores) begin
-                loadPC = 1'b1;
+                loadPC = 1'b1; //if the next state will be fetch then update the PC
                 if (opcode != JAL && opcode != JALR && opcode != Cond_b) 
-                    selINC_PC = 1'b1;
+                    selINC_PC = 1'b1; //PC+4 for non jump and cond. branches
             end
         end
         exec2: begin
             selALU_addr = 1'b1;
-            read_en = (opcode == Loads);
-            loadPC = mem_ready;
+            read_en = (opcode == Loads); //only for Loads operations
+            // when the data is processed by memory we update the PC
+            loadPC = mem_ready; 
             selINC_PC = 1'b1;
         end
         default: ;
@@ -104,25 +105,19 @@ always_comb begin : Encoder_flag
 end
 
 always_comb begin : ALU
-    ce              = 1'b0;
-    we_n            = 1'b1;
-    selRS1          = 1'b0;
-    selPC           = 1'b0;
-    selRS2          = 1'b0;
-    selImm          = 1'b0;
-    ALU_op          = ADD; 
-    ldALU           = 1'b0;
-    ldMEM           = 1'b0;
-    ldPC            = 1'b0;
-    selImm_PC       = 1'b0;
-    selIJump        = 1'b0;
-    selZero_cond    = 1'b0;
-    selNZero_cond   = 1'b0;
+    ce= 1'b0; we_n = 1'b1; //RF
+    selRS1 = 1'b0; selPC = 1'b0; selRS2 = 1'b0; selImm = 1'b0; //control input mux of ALU
+    ALU_op = ADD; //ALU opcode
+    ldALU = 1'b0; ldMEM = 1'b0; ldPC = 1'b0; //control write mux of RF
+    selImm_PC = 1'b0; selIJump = 1'b0;
+    selZero_cond = 1'b0; selNZero_cond = 1'b0;
+
     case(pstate)
         exec1: begin 
-            ce = 1'b1;
+            ce = 1'b1; //enable the RF register
             unique case (opcode)
                 R_to_R: begin
+                    //select inputs for ALU
                     selRS1 = 1'b1;
                     selRS2 = 1'b1;
                     case ({func7,func3}) //in this way we write on RF only right results
@@ -140,6 +135,7 @@ always_comb begin : ALU
                     endcase
                 end
                 Imm: begin
+                    //select inputs for ALU
                     selRS1 = 1'b1;
                     selImm = 1'b1;
                     casez ({func7,func3})
@@ -155,25 +151,25 @@ always_comb begin : ALU
                         default: ;
                     endcase
                 end
-                LUI: begin
+                LUI: begin //write Imm in RF
                     selImm  = 1'b1;
                     ALU_op  = PASS_B;
                     ldALU   = 1'b1;
                     we_n    = 1'b0;
                 end 
-                AUIPC: begin
+                AUIPC: begin //write Imm + PC in RF
                     selPC   = 1'b1;
                     selImm  = 1'b1;
-                    ALU_op  = ADD;
+                    ALU_op  = ADD; // PC + Imm
                     ldALU   = 1'b1;
                     we_n    = 1'b0;
                 end
-                Loads,Stores: begin
+                Loads,Stores: begin // compute the address for Loads and Stores
                     selRS1 = 1'b1;
                     selImm = 1'b1;
                     ALU_op = ADD;
                 end
-                Cond_b: begin
+                Cond_b: begin //using ALU compute the condition
                     selRS1 = 1'b1;
                     selRS2 = 1'b1;
                     
@@ -187,12 +183,12 @@ always_comb begin : ALU
                         default: ;
                     endcase
                 end
-                JAL: begin
+                JAL: begin //PC = PC + Imm and PC saved in RF
                     ldPC = 1'b1;
                     selImm_PC = 1'b1;
                     we_n = 1'b0;
                 end
-                JALR: begin
+                JALR: begin //PC = RF[RS1] + Imm and PC saved in RF
                     ldPC = 1'b1;
                     selRS1 = 1'b1;
                     selImm = 1'b1;
@@ -222,16 +218,10 @@ always_comb begin : ALU
 end
 
 always_comb begin : Mem_Data_Formatting
-    SgnE_8  = 1'b0;
-    SgnE_16 = 1'b0;
-    PT      = 1'b0;
-    ZrE_8   = 1'b0;
-    ZrE_16  = 1'b0;
-    ld_SB   = 1'b0;
-    ld_SH   = 1'b0;
-    ld_SW   = 1'b0;
+    SgnE_8 = 1'b0; SgnE_16 = 1'b0; PT = 1'b0; ZrE_8 = 1'b0; ZrE_16 = 1'b0;
+    ld_SB = 1'b0; ld_SH = 1'b0; ld_SW = 1'b0;
 
-    if (opcode == Loads) begin
+    if (opcode == Loads) begin //control for Extension
         case (func3)
             3'b000: SgnE_8  = 1'b1;
             3'b001: SgnE_16 = 1'b1;
@@ -241,7 +231,7 @@ always_comb begin : Mem_Data_Formatting
             default: ;
         endcase
     end else if (opcode == Stores && pstate == exec2) begin
-        case (func3)
+        case (func3) //control for Store_Encoder and Data_Aligner
             3'b000: ld_SB   = 1'b1;
             3'b001: ld_SH   = 1'b1;
             3'b010: ld_SW   = 1'b1;
@@ -252,6 +242,7 @@ end
 
 `ifndef SYNTHESIS
 
+//check state and control signal 
 always_comb begin : Design_Assertions
     if (rst_n) begin
         // Validate that the controller is in a legitimate state
@@ -302,6 +293,7 @@ always_comb begin : Design_Assertions
     end
 end
 
+//check instruction
 always_comb begin : Instruction_decoding_checks
     if(rst_n && pstate == exec1) begin
         

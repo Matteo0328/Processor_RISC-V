@@ -11,15 +11,15 @@ module RF #(
     output logic [BW-1:0] data_out_1, data_out_2
 );
 
-    // Instantiate register
+    // Instantiate register (initialized at 0)
     logic [BW-1:0] mem [DEPTH] = '{default: '0};
 
 
-    //Read out
+    //Read out (when the address is not 1)
     assign data_out_1 = (chip_en && read_addr_1 != 0) ?mem[read_addr_1] : '0;
     assign data_out_2 = (chip_en && read_addr_2 != 0) ?mem[read_addr_2] : '0;
 
-
+    //Synchronous write
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin // Reset
             for (int i = 0; i<DEPTH; i++) begin 

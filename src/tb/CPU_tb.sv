@@ -74,15 +74,70 @@ class riscv_instr_item;
             Stores:             return{imm[11:5], rs2, rs1, func3, imm[4:0], opcode}; //S-type
             Cond_b:             return{imm[12], imm[10:5], rs2, rs1, func3, imm[4:1], imm[11], opcode}; //SB-type
             JAL:                return{imm[20], imm[10:1], imm[11], imm[19:12], rd, opcode}; //UJ-type
-            default: $display("Error: Generation of a non valid opcode");
+            default: $display("[INFO]: Generation of a non valid opcode");
         endcase
         
     endfunction
 endclass //riscv_instr_item
 
+class riscv_illegal_item;
+    typedef enum { BAD_OPCODE, BAD_FUNC, SPECIAL } kind_e;
+
+    rand kind_e kind;
+    rand logic [6:0] opcode, func7;
+    rand logic [2:0] func3;
+    rand logic [4:0] rs1, rs2, rd;
+    rand logic [31:0] imm;
+    rand logic special_ones; // return all 1 or all 0;
+    
+    //kind has tre option with different probabilities
+    constraint c_kind {kind dist {BAD_OPCODE := 5, BAD_FUNC:=4, SPECIAL:=1};}
+
+    // --- unsupported opcode----
+    constraint c_bad_opcode{
+        if(kind == BAD_OPCODE){
+            !(opcode inside {R_to_R, Imm, LUI, AUIPC, Loads, Stores, Cond_b, JAL, JALR});
+            opcode[1:0] dist {2'b11 := 5, [2'b00:2'b10] :=5}; //probability of non riscv operation (opcode[1:0] != 2'b11)
+        }
+    }
+
+    //----- valid opcode, illegal func3/func7 ----
+    constraint c_bad_func {
+        if(kind == BAD_FUNC){
+            //opcode only for instructions with func3/func7
+            opcode inside {R_to_R, Imm, Loads, Stores, Cond_b, JALR};
+            if (opcode == R_to_R) { //wrong func3 and func7 for R_to_R
+                if(func3 inside {3'b000, 3'b101}) !(func7 inside {7'b0000000, 7'b0100000});
+                else                                func7 != 7'b0000000;
+            } else if (opcode == Imm){
+                (func3 == 3'b001 && imm[11:5] != 7'b0000000) || (func3 == 3'b101 && !(imm[11:5] inside {7'b0000000, 7'b0100000}));
+            } else if (opcode == Loads) func3 inside {3'b011, 3'b110, 3'b111};
+            else if (opcode == Stores)  func3 > 3'b010;
+            else if (opcode == Cond_b)  func3 inside {3'b010, 3'b011};
+            else if (opcode == JALR)  func3 != 3'b000;
+        }
+    }
+
+    function logic [31:0] pack();
+        if (kind == SPECIAL) return special_ones ? 32'hFFFF_FFFF: 32'h0000_0000; 
+        if (kind == BAD_OPCODE)
+            return {imm[31:25], rs2, rs1, func3, rd, opcode};
+        
+        //BAD_FUNC
+        case (opcode)
+            R_to_R:           return {func7, rs2, rs1, func3, rd, opcode};
+            Imm, Loads, JALR: return {imm[11:0], rs1, func3, rd, opcode};
+            Stores:           return {imm[11:5], rs2, rs1, func3, imm[4:0], opcode};
+            Cond_b:           return {imm[12], imm[10:5], rs2, rs1, func3, imm[4:1], imm[11], opcode};
+            default:          return 32'h0;
+        endcase  
+    endfunction
+endclass //riscv_illegal_item
+
+
 
 module CPU_tb;
-    localparam N_TEST = 100; //each type of test 
+    localparam N_TEST = 500; //each type of test 
     logic        clk,rst_n; 
     logic [31:0] data_in;
     logic        mem_ready;
@@ -108,53 +163,54 @@ module CPU_tb;
         forever #5 clk = ~clk;
     end
 
-    // ---- Emulated Memory -----
+// ---- Emulated Memory -----
 
-    localparam int MEM_DEPTH = 16384; //64KiB
-    localparam int MEM_AW    = $clog2(MEM_DEPTH); 
-    logic [31:0] memory [0:MEM_DEPTH-1];
-    logic [MEM_AW-1:0] word_idx;
-    assign word_idx = addr[MEM_AW+1:2];
-    int read_latency_cnt;
+        localparam int MEM_DEPTH = 16384; //64KiB
+        localparam int MEM_AW    = $clog2(MEM_DEPTH); 
+        logic [31:0] memory [0:MEM_DEPTH-1];
+        logic [MEM_AW-1:0] word_idx;
+        assign word_idx = addr[MEM_AW+1:2];
+        int read_latency_cnt;
 
     // Memory initialization 
-    initial begin
-        for (int i = 0; i < MEM_DEPTH; i++) begin
-            memory[i] = 32'h0000_0013;
-        end 
-    end
+        initial begin
+            for (int i = 0; i < MEM_DEPTH; i++) begin
+                memory[i] = 32'h0000_0013; //NOP 
+            end 
+        end
 
     // Handshake responder matching memory_controller
-    always_ff @( posedge clk or negedge rst_n ) begin 
-        if (!rst_n) begin
-            mem_ready           <= 1'b0;
-            data_in             <= '0;
-            read_latency_cnt    <= 0; 
-        end else begin
-            if (mem_ready) begin
+        always_ff @( posedge clk or negedge rst_n ) begin 
+            if (!rst_n) begin
                 mem_ready           <= 1'b0;
-                read_latency_cnt    <= 0;
-            end else if (|write_en) begin
-                if (write_en[0]) memory[word_idx][7:0] <= data_out [7:0];
-                if (write_en[1]) memory[word_idx][15:8] <= data_out [15:8];
-                if (write_en[2]) memory[word_idx][23:16] <= data_out [23:16];
-                if (write_en[3]) memory[word_idx][31:24] <= data_out [31:24];
-                mem_ready           <= 1'b1;
-                read_latency_cnt    <= 0;
-            end else if (read_en) begin
-                if (read_latency_cnt == 1) begin
-                    data_in             <= memory [word_idx];
+                data_in             <= '0;
+                read_latency_cnt    <= 0; 
+            end else begin
+                if (mem_ready) begin
+                    mem_ready           <= 1'b0;
+                    read_latency_cnt    <= 0;
+                end else if (|write_en) begin
+                    if (write_en[0]) memory[word_idx][7:0] <= data_out [7:0];
+                    if (write_en[1]) memory[word_idx][15:8] <= data_out [15:8];
+                    if (write_en[2]) memory[word_idx][23:16] <= data_out [23:16];
+                    if (write_en[3]) memory[word_idx][31:24] <= data_out [31:24];
                     mem_ready           <= 1'b1;
                     read_latency_cnt    <= 0;
+                end else if (read_en) begin
+                    if (read_latency_cnt == 1) begin
+                        data_in             <= memory [word_idx];
+                        mem_ready           <= 1'b1;
+                        read_latency_cnt    <= 0;
+                    end else 
+                        read_latency_cnt <= read_latency_cnt + 1;
                 end else 
-                    read_latency_cnt <= read_latency_cnt + 1;
-            end else 
-                read_latency_cnt <= 0;
+                    read_latency_cnt <= 0;
+            end
         end
-    end
 
-    // ---- Controller routines ----
+// ---- Controller routines ----
 
+    //Backdoor access to memory for read and write
     task automatic write_mem(input logic [31:0] byte_addr, input logic [31:0] val);
         memory[byte_addr[MEM_AW+1:2]] = val;
     endtask 
@@ -162,7 +218,7 @@ module CPU_tb;
     function automatic logic [31:0] read_mem( input logic [31:0] byte_addr);
         return memory[byte_addr[MEM_AW+1:2]];
     endfunction
-
+    
     //Advance execution across one complete instruction cycle
     task automatic step_instruction();
         reset_hit = 0;
@@ -172,7 +228,7 @@ module CPU_tb;
         wait (!reset_busy);
     endtask 
 
-    // ---- Reference software ALU ----
+// ---- Reference software ALU ----
     function automatic logic [31:0] ref_alu (
         input logic [31:0] a,
         input logic [31:0] b,
@@ -195,7 +251,7 @@ module CPU_tb;
         endcase
     endfunction
 
-    // random data generation (corner cases biased)
+// Random data generation (corner cases biased)
     function automatic logic [31:0] rand_operand();
         randcase
             1:  return 32'h0000_0000;               // Zero
@@ -209,324 +265,385 @@ module CPU_tb;
             10: return $urandom();                  // Random value
         endcase
     endfunction
-
+//-------------------------------------
+//|        Verification tasks         |
+//-------------------------------------
     // ------ R-Type verification ------
-    task automatic verify_r_type ();
-        riscv_instr_item item = new();
-        logic [31:0] pc_curr, opA, opB, exp_res;
+        task automatic verify_r_type ();
+            riscv_instr_item item = new();
+            logic [31:0] pc_curr, opA, opB, exp_res;
 
-        assert (item.randomize() with {opcode == R_to_R;})
-            else $fatal(1,"[TB FAIL] Constraint solver failed to randomize R-Type instruction");
+            assert (item.randomize() with {opcode == R_to_R;}) //create proper instruction
+                else $fatal(1,"[TB FAIL] Constraint solver failed to randomize R-Type instruction");
 
-        // Generate  data and backdoor-initialize the DUT RF with the selected operands before instruction execution
-        opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
-        if (item.rs1 == item.rs2) begin
-            opB = opA;
-        end else begin
-            opB = (item.rs2 != 0) ? rand_operand() : 32'h0;
-        end
-        if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
-        if (item.rs2 != 0) DUT.Datapath.RF1.mem[item.rs2] = opB;
+            // Generate  data and backdoor-initialize the DUT RF with the selected operands before instruction execution
+            opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
+            if (item.rs1 == item.rs2) begin
+                opB = opA;
+            end else begin
+                opB = (item.rs2 != 0) ? rand_operand() : 32'h0;
+            end
+            if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
+            if (item.rs2 != 0) DUT.Datapath.RF1.mem[item.rs2] = opB;
 
-        pc_curr = pc;
-        write_mem(pc_curr, item.pack());
+            // Backdoor initialize the memory in position PC (so it'll the next instr exec)
+            pc_curr = pc;
+            write_mem(pc_curr, item.pack());
 
-        //compute expected result
-        exp_res = (item.rd == 0) ? 32'h0 : ref_alu(opA, opB, item.func7, item.func3);
+            //compute expected result
+            exp_res = (item.rd == 0) ? 32'h0 : ref_alu(opA, opB, item.func7, item.func3);
 
-        step_instruction();
-        if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
+            step_instruction();
+            if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
 
-        if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || pc !== pc_curr + 4) begin
-            $error("[FAIL R-TYPE] rd=%0d f7=%b f3=%b | Exp: %h, Got: %h",
-                        item.rd, item.func7, item.func3, exp_res, DUT.Datapath.RF1.mem[item.rd]);
-            fail_count++;
-        end
-    endtask //verify_r_type
-
-    // ------ Imm-Type verification ------
-    task automatic verify_imm_type();
-        riscv_instr_item item = new();
-        logic [31:0] pc_curr, opA, exp_res, simm;
-
-        assert (item.randomize() with {opcode == Imm;})
-            else $fatal(1,"[TB FAIL] Constraint solver failed to randomize I-Type instruction");
-
-        // Generate  data and backdoor-initialize the DUT RF with the selected operands before instruction execution
-        opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
-        simm = {{20{item.imm[11]}}, item.imm[11:0]};
-        if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
-
-        pc_curr = pc;
-        write_mem(pc_curr, item.pack());
-
-        //compute expected result
-        case (item.func3)
-                3'b000: exp_res = opA + simm;
-                3'b010: exp_res = ($signed(opA) < $signed(simm)) ? 32'd1 : 32'd0;
-                3'b011: exp_res = (opA < simm) ? 32'd1 : 32'd0;
-                3'b100: exp_res = opA ^ simm;
-                3'b110: exp_res = opA | simm;
-                3'b111: exp_res = opA & simm;
-                3'b001: exp_res = opA << item.imm[4:0];
-                3'b101: begin
-                        if (item.imm[11:5] == 7'b0100000)
-                            exp_res = $signed(opA) >>> item.imm[4:0];
-                            else if (item.imm[11:5] == 7'b0000000)
-                            exp_res = opA >> item.imm[4:0];
-                    end
-                default: exp_res = 32'h0;
-            endcase
-        if (item.rd == 0) exp_res = 32'h0;
-
-        step_instruction();
-        if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
-            
-        if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || pc !== pc_curr + 4) begin
-                $error("[FAIL I-TYPE] rd=%0d f3=%b | Exp: %h, Got: %h",
-                    item.rd, item.func3, exp_res, DUT.Datapath.RF1.mem[item.rd]);
-                fail_count++;
-        end
-    endtask //verify_imm_type
-
-    // ------ LUI verification ------
-    task automatic verify_lui();
-        riscv_instr_item item = new();
-        logic [31:0] pc_curr, exp_res;
-
-        assert (item.randomize() with {opcode == LUI; })
-            else $fatal(1, "[TB FATAL] Constraint solver failed to randomize LUI instruction");
-
-        pc_curr = pc;
-        write_mem(pc_curr, item.pack());
-
-        // compute expected result
-        exp_res = (item.rd == 5'd0) ? 32'h0 : {item.imm[31:12], 12'h000};
-
-        step_instruction();
-        if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
-
-        if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || pc !== pc_curr + 4) begin
-            $error("[FAIL LUI] rd=%0d | Exp: %h, Got: %h, Exp PC: %h, Got PC: %h",
-                    item.rd, exp_res, DUT.Datapath.RF1.mem[item.rd], pc_curr + 4, pc);
-            fail_count++;
-        end
-    endtask //verify_lui
-
-    // ------ AUIPC verification ------
-    task automatic verify_auipc();
-        riscv_instr_item item = new();
-        logic [31:0] pc_curr, exp_res;
-
-            assert (item.randomize() with {opcode == AUIPC; })
-            else $fatal(1, "[TB FATAL] Constraint solver failed to randomize AUIPC instruction");
-        pc_curr = pc;
-        write_mem(pc_curr, item.pack());
-
-        // compute expected result
-        exp_res = (item.rd == 5'd0) ? 32'h0 : (pc_curr + {item.imm[31:12], 12'h000});
-
-        step_instruction();
-        if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
-
-        if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || pc !== pc_curr + 4) begin
-                $error("[FAIL AUIPC] rd=%0d | Exp: %h, Got: %h, Exp PC: %h, Got PC: %h",
-                    item.rd, exp_res, DUT.Datapath.RF1.mem[item.rd], pc_curr + 4, pc);
+            //check results
+            if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || pc !== pc_curr + 4) begin
+                $error("[FAIL R-TYPE] rd=%0d f7=%b f3=%b | Exp: %h, Got: %h",
+                            item.rd, item.func7, item.func3, exp_res, DUT.Datapath.RF1.mem[item.rd]);
                 fail_count++;
             end
-    endtask //verify_auipc
+        endtask //verify_r_type
+
+    // ------ Imm-Type verification ------
+        task automatic verify_imm_type();
+            riscv_instr_item item = new();
+            logic [31:0] pc_curr, opA, exp_res, simm;
+
+            assert (item.randomize() with {opcode == Imm;})
+                else $fatal(1,"[TB FAIL] Constraint solver failed to randomize I-Type instruction");
+
+            // Generate  data and backdoor-initialize the DUT RF with the selected operands before instruction execution
+            opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
+            simm = {{20{item.imm[11]}}, item.imm[11:0]};
+            if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
+
+            // Backdoor write memory in PC
+            pc_curr = pc;
+            write_mem(pc_curr, item.pack());
+
+            //compute expected result
+            case (item.func3)
+                    3'b000: exp_res = opA + simm;
+                    3'b010: exp_res = ($signed(opA) < $signed(simm)) ? 32'd1 : 32'd0;
+                    3'b011: exp_res = (opA < simm) ? 32'd1 : 32'd0;
+                    3'b100: exp_res = opA ^ simm;
+                    3'b110: exp_res = opA | simm;
+                    3'b111: exp_res = opA & simm;
+                    3'b001: exp_res = opA << item.imm[4:0];
+                    3'b101: begin
+                            if (item.imm[11:5] == 7'b0100000)
+                                exp_res = $signed(opA) >>> item.imm[4:0];
+                                else if (item.imm[11:5] == 7'b0000000)
+                                exp_res = opA >> item.imm[4:0];
+                        end
+                    default: exp_res = 32'h0;
+                endcase
+            if (item.rd == 0) exp_res = 32'h0;
+
+            step_instruction();
+            if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
+
+            //check result 
+            if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || pc !== pc_curr + 4) begin
+                    $error("[FAIL I-TYPE] rd=%0d f3=%b | Exp: %h, Got: %h",
+                        item.rd, item.func3, exp_res, DUT.Datapath.RF1.mem[item.rd]);
+                    fail_count++;
+            end
+        endtask //verify_imm_type
+
+    // ------ LUI verification ------
+        task automatic verify_lui();
+            riscv_instr_item item = new();
+            logic [31:0] pc_curr, exp_res;
+
+            assert (item.randomize() with {opcode == LUI; })
+                else $fatal(1, "[TB FATAL] Constraint solver failed to randomize LUI instruction");
+
+            //backdoor write the memory in position PC
+            pc_curr = pc;
+            write_mem(pc_curr, item.pack());
+
+            // compute expected result
+            exp_res = (item.rd == 5'd0) ? 32'h0 : {item.imm[31:12], 12'h000};
+
+            step_instruction();
+            if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
+
+            //check result
+            if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || pc !== pc_curr + 4) begin
+                $error("[FAIL LUI] rd=%0d | Exp: %h, Got: %h, Exp PC: %h, Got PC: %h",
+                        item.rd, exp_res, DUT.Datapath.RF1.mem[item.rd], pc_curr + 4, pc);
+                fail_count++;
+            end
+        endtask //verify_lui
+
+    // ------ AUIPC verification ------
+        task automatic verify_auipc();
+            riscv_instr_item item = new();
+            logic [31:0] pc_curr, exp_res;
+
+                assert (item.randomize() with {opcode == AUIPC; })
+                else $fatal(1, "[TB FATAL] Constraint solver failed to randomize AUIPC instruction");
+
+            // backdoor write the memory in PC    
+            pc_curr = pc;
+            write_mem(pc_curr, item.pack());
+
+            // compute expected result
+            exp_res = (item.rd == 5'd0) ? 32'h0 : (pc_curr + {item.imm[31:12], 12'h000});
+
+            step_instruction();
+            if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
+            
+            //check result
+            if (DUT.Datapath.RF1.mem[item.rd] !== exp_res || pc !== pc_curr + 4) begin
+                    $error("[FAIL AUIPC] rd=%0d | Exp: %h, Got: %h, Exp PC: %h, Got PC: %h",
+                        item.rd, exp_res, DUT.Datapath.RF1.mem[item.rd], pc_curr + 4, pc);
+                    fail_count++;
+                end
+        endtask //verify_auipc
 
     // ------ Load-Type verification ------
-    task automatic verify_load();
-        riscv_instr_item item = new();
-        logic [31:0] opA, simm, eff, pc_curr, word, exp_res;
-        logic [7:0] b;
-        logic [15:0] h;
-        
+        task automatic verify_load();
+            riscv_instr_item item = new();
+            logic [31:0] opA, simm, eff, pc_curr, word, exp_res;
+            logic [7:0] b;
+            logic [15:0] h;
+            
 
-        assert(item.randomize() with {opcode == Loads;})
-            else $fatal(1, "[TB FATAL] Constraint solver failed to randomize Load instruction");
+            assert(item.randomize() with {opcode == Loads;})
+                else $fatal(1, "[TB FATAL] Constraint solver failed to randomize Load instruction");
 
-        // Generate  data and backdoor-initialize the DUT RF with the selected operands before instruction execution
-        opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
-        simm = {{20{item.imm[11]}}, item.imm[11:0]};
-        eff = opA + simm;
-        if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
+            // Generate  data and backdoor-initialize the DUT RF with the selected operands before instruction execution
+            opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
+            simm = {{20{item.imm[11]}}, item.imm[11:0]};
+            eff = opA + simm;
+            if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
 
+            //backdoor write the memory
+            pc_curr = pc;
+            write_mem(eff, rand_operand()); //rand_operand in eff
+            write_mem(pc_curr, item.pack()); //instr in PC
+            word = read_mem(eff); //word = the value randomly generated before
 
-        pc_curr = pc;
-        write_mem(eff, rand_operand());
-        write_mem(pc_curr, item.pack());
-        word = read_mem(eff);
+            // compute expected result
+            b = word[8*eff[1:0] +: 8];
+            h = word[16*eff[1] +: 16];
 
-        // compute expected result
-        b = word[8*eff[1:0] +: 8];
-        h = word[16*eff[1] +: 16];
+            case (item.func3)
+                3'b000:  exp_res = {{24{b[7]}},  b};   // LB
+                3'b001:  exp_res = {{16{h[15]}}, h};   // LH
+                3'b010:  exp_res = word;               // LW
+                3'b100:  exp_res = {24'h0, b};         // LBU
+                3'b101:  exp_res = {16'h0, h};         // LHU
+                default: exp_res = 32'h0;
+            endcase
 
-        case (item.func3)
-            3'b000:  exp_res = {{24{b[7]}},  b};   // LB
-            3'b001:  exp_res = {{16{h[15]}}, h};   // LH
-            3'b010:  exp_res = word;               // LW
-            3'b100:  exp_res = {24'h0, b};         // LBU
-            3'b101:  exp_res = {16'h0, h};         // LHU
-            default: exp_res = 32'h0;
-        endcase
+            if (item.rd == 0) exp_res = 32'h0;
 
-        if (item.rd == 0) exp_res = 32'h0;
+            step_instruction();
+            if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
 
-        step_instruction();
-        if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
-
-        if (DUT.Datapath.RF1.mem[item.rd] !== exp_res ||pc !== pc_curr + 4) begin
-            $error("[FAIL LOAD] rd=%0d rs1=%0d f3=%b addr=%h | Exp: %h, Got: %h, Exp PC: %h, Got PC: %h",
-                item.rd, item.rs1, item.func3, eff, exp_res, DUT.Datapath.RF1.mem[item.rd],
-                pc_curr + 4, pc);
-            fail_count++;
-        end
-    endtask //verify_load
+            //check result
+            if (DUT.Datapath.RF1.mem[item.rd] !== exp_res ||pc !== pc_curr + 4) begin
+                $error("[FAIL LOAD] rd=%0d rs1=%0d f3=%b addr=%h | Exp: %h, Got: %h, Exp PC: %h, Got PC: %h",
+                    item.rd, item.rs1, item.func3, eff, exp_res, DUT.Datapath.RF1.mem[item.rd],
+                    pc_curr + 4, pc);
+                fail_count++;
+            end
+        endtask //verify_load
 
     // ------ Store verification ------
-    task automatic verify_store();
-        riscv_instr_item item = new();
-            logic [31:0] opA, simm, eff, pc_curr, word, exp_res;
-        
-        assert(item.randomize() with {opcode == Stores;})
-            else $fatal(1, "[TB FATAL] Constraint solver failed to randomize Store instruction");
+        task automatic verify_store();
+            riscv_instr_item item = new();
+                logic [31:0] opA, simm, eff, pc_curr, word, exp_res;
+            
+            assert(item.randomize() with {opcode == Stores;})
+                else $fatal(1, "[TB FATAL] Constraint solver failed to randomize Store instruction");
 
-        // Generate  data and backdoor-initialize the DUT RF with the selected operands before instruction execution
-        opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
-        simm = {{20{item.imm[11]}}, item.imm[11:0]};
-        eff = opA + simm;
-        if (item.rs2 != 0) DUT.Datapath.RF1.mem[item.rs2] = rand_operand();
-        if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
-        word = (item.rs2 != 0) ? DUT.Datapath.RF1.mem[item.rs2] : 32'h0;
+            // Generate  data and backdoor-initialize the DUT RF with the selected operands before instruction execution
+            opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
+            simm = {{20{item.imm[11]}}, item.imm[11:0]};
+            eff = opA + simm;
+            if (item.rs2 != 0) DUT.Datapath.RF1.mem[item.rs2] = rand_operand();
+            if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
+            word = (item.rs2 != 0) ? DUT.Datapath.RF1.mem[item.rs2] : 32'h0;
 
-        pc_curr = pc;
-        write_mem(eff, rand_operand());
-        write_mem(pc_curr, item.pack());
+            //Backdoor write the memory
+            pc_curr = pc;
+            write_mem(eff, rand_operand());
+            write_mem(pc_curr, item.pack());
 
-        //modify only the written byte
-        exp_res = read_mem(eff);
-        case (item.func3)
-            3'b000:     exp_res[8*eff[1:0] +: 8] = word[7:0];     // SB
-            3'b001:     exp_res[16*eff[1] +: 16] = word[15:0];// SH
-            3'b010:     exp_res = word;        // SW
-            default: ;
-        endcase
-        
-        step_instruction();
-        if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
+            //modify only the written byte
+            exp_res = read_mem(eff);
+            case (item.func3)
+                3'b000:     exp_res[8*eff[1:0] +: 8] = word[7:0];     // SB
+                3'b001:     exp_res[16*eff[1] +: 16] = word[15:0];// SH
+                3'b010:     exp_res = word;        // SW
+                default: ;
+            endcase
+            
+            step_instruction();
+            if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
 
-        if (read_mem(eff) !== exp_res || pc !== pc_curr + 4) begin
-            $error("[FAIL STORE] rs1=%0d rs2=%0d f3=%b addr=%h | Exp: %h, Got: %h, Exp PC: %h, Got PC: %h",
-                item.rs1, item.rs2, item.func3, eff, exp_res, read_mem(eff),
-                pc_curr + 4, pc);
-            fail_count++;
-        end
-    endtask //verify_store
+            //check result
+            if (read_mem(eff) !== exp_res || pc !== pc_curr + 4) begin
+                $error("[FAIL STORE] rs1=%0d rs2=%0d f3=%b addr=%h | Exp: %h, Got: %h, Exp PC: %h, Got PC: %h",
+                    item.rs1, item.rs2, item.func3, eff, exp_res, read_mem(eff),
+                    pc_curr + 4, pc);
+                fail_count++;
+            end
+        endtask //verify_store
 
     // ------ C. Branches verification ------
-    task automatic verify_branch();
-        riscv_instr_item item = new();
-        logic [31:0]  pc_curr, opA, opB, exp_pc;
-        logic taken;
+        task automatic verify_branch();
+            riscv_instr_item item = new();
+            logic [31:0]  pc_curr, opA, opB, exp_pc;
+            logic taken;
 
-        assert(item.randomize() with {opcode == Cond_b; imm[1:0] == 2'b00;})
-            else $fatal(1, "[TB FATAL] Constraint solver failed to randomize Branch instruction");
+            assert(item.randomize() with {opcode == Cond_b; imm[1:0] == 2'b00;})
+                else $fatal(1, "[TB FATAL] Constraint solver failed to randomize Branch instruction");
 
-        // Generate  data and  backdoor-initialize the DUT RF with the selected operands before instruction execution
-        opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
-        opB = (item.rs2 != 0) ? (($urandom_range(0, 9) == 0) ? opA : rand_operand()) : 32'h0; // 10% prob of getting opA == opB
-        if (item.rs1 == item.rs2) opB = opA;
-        if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
-        if (item.rs2 != 0) DUT.Datapath.RF1.mem[item.rs2] = opB;
+            // Generate  data and  backdoor-initialize the DUT RF with the selected operands before instruction execution
+            opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
+            opB = (item.rs2 != 0) ? (($urandom_range(0, 9) == 0) ? opA : rand_operand()) : 32'h0; // 10% prob of getting opA == opB
+            if (item.rs1 == item.rs2) opB = opA;
+            if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
+            if (item.rs2 != 0) DUT.Datapath.RF1.mem[item.rs2] = opB;
 
-        pc_curr = pc;
-        write_mem(pc_curr, item.pack());
+            pc_curr = pc;
+            write_mem(pc_curr, item.pack());
 
-        // compute expected next PC
+            // compute expected next PC
 
-        case (item.func3) 
-            3'b000: taken = (opA == opB); 
-            3'b001: taken = (opA != opB);
-            3'b100: taken = ($signed(opA) < $signed(opB));
-            3'b101: taken = ($signed(opA) >= $signed(opB));
-            3'b110: taken = (opA < opB);
-            3'b111: taken = (opA >= opB);
-            default: taken = 1'b0;
-        endcase
-        
-        exp_pc = taken ? pc_curr + {{19{item.imm[12]}}, item.imm[12:1], 1'b0} : pc_curr + 4;
+            case (item.func3) 
+                3'b000: taken = (opA == opB); 
+                3'b001: taken = (opA != opB);
+                3'b100: taken = ($signed(opA) < $signed(opB));
+                3'b101: taken = ($signed(opA) >= $signed(opB));
+                3'b110: taken = (opA < opB);
+                3'b111: taken = (opA >= opB);
+                default: taken = 1'b0;
+            endcase
+            
+            exp_pc = taken ? pc_curr + {{19{item.imm[12]}}, item.imm[12:1], 1'b0} : pc_curr + 4;
 
-        step_instruction();
-        if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
-
+            step_instruction();
+            if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
+            //check result
             if (pc !== exp_pc) begin
-            $error("[FAIL BRANCH] rs1=%0d rs2=%0d f3=%b | A=%h B=%h imm=%0d taken=%b | Exp PC: %h, Got PC: %h",
-                item.rs1, item.rs2, item.func3, opA, opB, $signed(item.imm[12:0]), taken,
-                exp_pc, pc);
-            fail_count++;
-        end
-    endtask //verify_branch
+                $error("[FAIL BRANCH] rs1=%0d rs2=%0d f3=%b | A=%h B=%h imm=%0d taken=%b | Exp PC: %h, Got PC: %h",
+                    item.rs1, item.rs2, item.func3, opA, opB, $signed(item.imm[12:0]), taken,
+                    exp_pc, pc);
+                fail_count++;
+            end
+        endtask //verify_branch
 
     // ------ JAL verification ------
-    task automatic verify_jal();
-        riscv_instr_item item = new();
-        logic [31:0] pc_curr, exp_pc, exp_rd;
+        task automatic verify_jal();
+            riscv_instr_item item = new();
+            logic [31:0] pc_curr, exp_pc, exp_rd;
 
-        assert (item.randomize() with { opcode == JAL; imm[1:0] == 2'b00;})
-                else $fatal(1, "[TB FATAL] Constraint solver failed to randomize JAL instruction");
+            assert (item.randomize() with { opcode == JAL; imm[1:0] == 2'b00;})
+                    else $fatal(1, "[TB FATAL] Constraint solver failed to randomize JAL instruction");
 
-        pc_curr = pc;
-        write_mem(pc_curr, item.pack());
+            pc_curr = pc;
+            write_mem(pc_curr, item.pack());
 
-        //compute expected result
-        exp_rd = (item.rd == 0) ? 32'h0 : pc_curr + 4;
-        exp_pc = pc_curr + {{11{item.imm[20]}}, item.imm[20:1], 1'b0};
+            //compute expected result
+            exp_rd = (item.rd == 0) ? 32'h0 : pc_curr + 4;
+            exp_pc = pc_curr + {{11{item.imm[20]}}, item.imm[20:1], 1'b0};
 
-        step_instruction();
-        if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
+            step_instruction();
+            if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
 
-        if (DUT.Datapath.RF1.mem[item.rd] !== exp_rd || pc !== exp_pc) begin
-            $error("[FAIL JAL] rd=%0d imm=%0d | Exp rd: %h, Got: %h, Exp PC: %h, Got PC: %h",
-                item.rd, $signed(item.imm[20:0]), exp_rd, DUT.Datapath.RF1.mem[item.rd],
-                exp_pc, pc);
-            fail_count++;
-        end   
-    endtask //verify_jal
+            //check result
+            if (DUT.Datapath.RF1.mem[item.rd] !== exp_rd || pc !== exp_pc) begin
+                $error("[FAIL JAL] rd=%0d imm=%0d | Exp rd: %h, Got: %h, Exp PC: %h, Got PC: %h",
+                    item.rd, $signed(item.imm[20:0]), exp_rd, DUT.Datapath.RF1.mem[item.rd],
+                    exp_pc, pc);
+                fail_count++;
+            end   
+        endtask //verify_jal
 
     // ------ JALR verification ------
-    task automatic verify_jalr();
-        riscv_instr_item item = new();
-        logic [31:0] pc_curr, opA, exp_pc, exp_rd;
+        task automatic verify_jalr();
+            riscv_instr_item item = new();
+            logic [31:0] pc_curr, opA, exp_pc, exp_rd;
 
-        assert (item.randomize() with { opcode == JALR; imm[1:0] == 2'b00;})
-                else $fatal(1, "[TB FATAL] Constraint solver failed to randomize JALR instruction");
+            assert (item.randomize() with { opcode == JALR; imm[1:0] == 2'b00;})
+                    else $fatal(1, "[TB FATAL] Constraint solver failed to randomize JALR instruction");
 
-        // Generate data and backdoor-initialize the DUT RF with the selected operand before instruction execution
-        opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
-        if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
+            // Generate data and backdoor-initialize the DUT RF with the selected operand before instruction execution
+            opA = (item.rs1 != 0) ? rand_operand() : 32'h0;
+            if (item.rs1 != 0) DUT.Datapath.RF1.mem[item.rs1] = opA;
 
-        pc_curr = pc;
-        write_mem(pc_curr, item.pack());
+            pc_curr = pc;
+            write_mem(pc_curr, item.pack());
 
-        //compute expected result
-        exp_rd = (item.rd == 0) ? 32'h0 : pc_curr + 4;
-        exp_pc = (opA + {{20{item.imm[11]}}, item.imm[11:0]}) & ~(32'b11);
+            //compute expected result
+            exp_rd = (item.rd == 0) ? 32'h0 : pc_curr + 4;
+            exp_pc = (opA + {{20{item.imm[11]}}, item.imm[11:0]}) & ~(32'b11);
 
-        step_instruction();
-        if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
+            step_instruction();
+            if (reset_hit) return;   // interrupted by a reset: expected values are no longer valid
 
-        if (DUT.Datapath.RF1.mem[item.rd] !== exp_rd || pc !== exp_pc) begin
-            $error("[FAIL JALR] rd=%0d rs1=%0d | A=%h imm=%0d | Exp rd: %h, Got: %h, Exp PC: %h, Got PC: %h",
-                item.rd, item.rs1, opA, $signed(item.imm[11:0]), exp_rd, DUT.Datapath.RF1.mem[item.rd],
-                exp_pc, pc);
-            fail_count++;
-        end 
-    endtask //verify_jalr
+            //check result
+            if (DUT.Datapath.RF1.mem[item.rd] !== exp_rd || pc !== exp_pc) begin
+                $error("[FAIL JALR] rd=%0d rs1=%0d | A=%h imm=%0d | Exp rd: %h, Got: %h, Exp PC: %h, Got PC: %h",
+                    item.rd, item.rs1, opA, $signed(item.imm[11:0]), exp_rd, DUT.Datapath.RF1.mem[item.rd],
+                    exp_pc, pc);
+                fail_count++;
+            end 
+        endtask //verify_jalr
+
+    // ------ Illegal verification -------
+        bit mon_en = 0, illegal_wr_seen = 0;
+        always @(posedge clk) if (mon_en && |write_en) illegal_wr_seen <=1'b1;
 
 
-    // ---- Main verification flow ------
+        task automatic verify_illegal();
+            riscv_illegal_item item = new();
+            logic[31:0] pc_curr, rf_snap [32];
+            bit timeout = 0, rf_changed = 0; //to much time or RF modified
+
+
+            assert (item.randomize())
+                else $fatal(1, "[TB FATAL] Constraint solver failed to randomize illegal instruction");
+
+            // Random RF contents
+            for (int i = 1; i < 32; i++) DUT.Datapath.RF1.mem[i] = rand_operand();
+            for (int i = 0; i < 32; i++) rf_snap[i] = DUT.Datapath.RF1.mem[i];
+
+            pc_curr = pc;
+            write_mem(pc_curr, item.pack());
+            pc_curr = pc + 4;
+
+            illegal_wr_seen = 0;
+            mon_en = 1;
+            //split into instruction (computed in parallel)
+            fork
+                step_instruction();
+                begin repeat (200) @(posedge clk); timeout = 1; end //to exit if the system can't advance
+            join_any
+            disable fork;
+            mon_en = 0;
+
+
+            if (reset_hit) return; //received a reset
+
+            for (int i = 0; i < 32; i++)
+                if (DUT.Datapath.RF1.mem[i] !== rf_snap[i]) rf_changed = 1;
+
+            if (timeout || rf_changed || illegal_wr_seen || pc !== pc_curr) begin
+                $error("[FAIL ILLEGAL] kind=%s instr=%h | timeout=%b RF changed=%b mem write=%b | Exp PC: %h, Got PC: %h", item.kind.name(), item.pack(), timeout, rf_changed, illegal_wr_seen, pc_curr, pc);
+                fail_count++;
+            end
+
+        endtask //verify_illegal
+
+
+// ---- Main verification flow ------
     initial begin
         rst_n = 0;
         #25;
@@ -534,7 +651,7 @@ module CPU_tb;
 
         step_instruction();
 
-        reset_en = 1;
+        reset_en = 1; // start random reset
 
         $display("==================================================");
         $display("   STARTING RISC-V CPU VERIFICATION ");
@@ -566,19 +683,23 @@ module CPU_tb;
 
         $display("\n[PHASE 8] Executing Randomized JALR Instructions...");
         repeat (N_TEST) verify_jalr();
+        
+        $display("\n[PHASE 9] Executing Randomized Illegal Instructions...");
+        repeat (N_TEST) verify_illegal();
 
-        $display("\n[PHASE 9] Executing Mixed Random Instructions...");
+        $display("\n[PHASE 10] Executing Mixed Random Instructions...");
         repeat (N_TEST * 8) begin
         randcase
-                2: verify_r_type();
-                2: verify_imm_type();
-                1: verify_lui();
-                1: verify_auipc();
-                2: verify_load();
-                2: verify_store();
-                2: verify_branch();
-                1: verify_jal();
-                1: verify_jalr();
+                8: verify_r_type();
+                8: verify_imm_type();
+                4: verify_lui();
+                4: verify_auipc();
+                8: verify_load();
+                8: verify_store();
+                8: verify_branch();
+                4: verify_jal();
+                4: verify_jalr();
+                1: verify_illegal();
             endcase
         end
 
@@ -590,25 +711,25 @@ module CPU_tb;
     end
 
 
-    // ------ Random asynchronous reset ----
+// ------ Random asynchronous reset ------
 
     task automatic check_reset_state();
-    int nz = 0;
-    for (int i = 0; i < 32; i++)
-        if (DUT.Datapath.RF1.mem[i] !== 32'h0) nz++;
+        int nz = 0;
+        for (int i = 0; i < 32; i++)//reset RF register
+            if (DUT.Datapath.RF1.mem[i] !== 32'h0) nz++;
 
-    if (DUT.Controller.pstate !== fetch || pc !== 32'h0 ||DUT.Datapath.d_out_IR !== 32'h0 || nz != 0) begin
-        $error("[FAIL RESET] pstate=%0d PC=%h IR=%h RF nonzero=%0d", 
-                DUT.Controller.pstate, pc, DUT.Datapath.d_out_IR, nz);
-        fail_count++;
-    end
+        if (DUT.Controller.pstate !== fetch || pc !== 32'h0 ||DUT.Datapath.d_out_IR !== 32'h0 || nz != 0) begin
+            $error("[FAIL RESET] pstate=%0d PC=%h IR=%h RF nonzero=%0d", 
+                    DUT.Controller.pstate, pc, DUT.Datapath.d_out_IR, nz);
+            fail_count++;
+        end
+    endtask
 
-endtask
     initial begin
         wait (reset_en);
         forever begin
             repeat ($urandom_range(20, 200)) @(posedge clk);
-            #($urandom_range(20, 99) / 10.0);
+            #($urandom_range(20, 99) / 10.0); //reset between one clk and the next
 
             reset_busy = 1;
             reset_hit  = 1;

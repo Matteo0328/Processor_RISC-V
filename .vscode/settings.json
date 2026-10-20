@@ -4,7 +4,9 @@
         "constrs",
         "halfword",
         "JALR",
+        "pstate",
         "Questa",
+        "riscv",
         "vivado"
     ]
 }

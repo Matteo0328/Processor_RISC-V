@@ -23,10 +23,10 @@ module ALU_tb;
 
     logic [31 : 0] in_a;    // operand A
     logic [31 : 0] in_b;    // operand B
-    alu_op_t ALU_op;         // operation code   
+    alu_op_t ALU_op;        // operation code   
     
-    logic [31 : 0] out;    // output result
-    alu_flags_t flags;       // flags of the result
+    logic [31 : 0] out;     // output result
+    alu_flags_t flags;      // flags of the result
 
 
     int error_count = 0;
@@ -36,7 +36,6 @@ module ALU_tb;
     
     // obtain the ref output
     function automatic logic [31:0] ref_result (alu_op_t op, logic [31:0] a, logic [31:0] b);
-        
         longint signed a_sign;
         longint signed b_sign;
         int unsigned shamt;
@@ -51,8 +50,8 @@ module ALU_tb;
             SLL:     return a << shamt;                     // logical left
             SRL:     return a >> shamt;                     // logical right (zero fill)
             SRA:     return $signed(a) >>> shamt;           // arithmetic right (sign fill)
-            SLT:     return a_sign < b_sign;       // signed compare   -> 0 or 1
-            SLTU:    return a < b;                     // unsigned compare -> 0 or 1
+            SLT:     return a_sign < b_sign;                // signed compare   -> 0 or 1
+            SLTU:    return a < b;                          // unsigned compare -> 0 or 1
             XOR:     return a ^ b;
             OR:      return a | b;
             AND:     return a & b;
@@ -103,7 +102,7 @@ module ALU_tb;
    function automatic alu_op_t rand_op();
        alu_op_t op;
        op = op.first();
-       repeat ($urandom_range(0, op.num()-1)) op = op.next();
+       repeat ($urandom_range(0, op.num()-1)) op = op.next(); 
        return op;
    endfunction
 
@@ -173,6 +172,7 @@ module ALU_tb;
         $display("=================================");
 
         $display ("----- Corner cross -----");
+        //Test any possible combination between corners for every operands
         foreach (CORNERS[i])
             foreach(CORNERS[j])
                 check_all_ops(CORNERS[i], CORNERS[j]);

@@ -2,6 +2,8 @@
 
 module RF_tb;
     localparam N_TEST = 1000;
+
+    //Reduced dimension register
     localparam int BW = 8;
     localparam int DEPTH = 8;
 
@@ -246,7 +248,7 @@ module RF_tb;
                         // check_read will correctly expect 0 because chip_en = 0
                         check_read(read_addr_1, read_addr_2, 1); 
 
-                    end else begin //95% probability of normal read/write
+                    end else begin //95% probability of random read/write
                         rst_n = 1;
                         chip_en = 1; 
 

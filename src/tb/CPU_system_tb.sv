@@ -3,7 +3,7 @@
 module CPU_system_tb;
     localparam logic [31:0] ADDR_COUNTER = 32'h0000_8000;
     localparam logic [31:0] ADDR_OUT = 32'h0000_A000;
-    localparam logic [31:0] EXPECTED = 32'h0000_136F;   // 25 + (0+1+...+99) = 4975
+    localparam logic [31:0] EXPECTED = 32'h0000_136F;   // 25 + (0+1+...+99) = 4975 = hex: 136F
 
     logic        clk, rst_n;
     logic [31:0] bus_addr, bus_wdata;

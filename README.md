@@ -42,7 +42,10 @@ A complete 32-bit RISC-V (RV32I subset) processor written in synthesizable **Sys
 Paths inside the SystemVerilog `include` directives (`../pkg/common_pkg.sv`, `pkg/common_pkg.sv`, or `../rtl/pkg/common_pkg.sv`) assume a layout like the one below. Adjust them if your folders differ.
 
 ```
-.
+..
+├── docs/                        # Architecture documentation and schematics
+│   ├── datapath_schematic.pdf   # Complete Datapath block diagram
+│   └── fsm_state_diagram.pdf    # Controller FSM state transition diagram
 ├── Firmware/
 │   ├── firmware.coe             # Memory initialization vector (compiled firmware)
 │   └── main.c                   # Bare-metal C program for system testing

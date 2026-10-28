@@ -39,41 +39,58 @@ A complete 32-bit RISC-V (RV32I subset) processor written in synthesizable **Sys
 
 ## Repository Structure
 
-Paths inside the SystemVerilog `include` directives (`../pkg/common_pkg.sv`, `../rtl/pkg/common_pkg.sv`) assume a layout like the one below. Adjust it if your folders differ.
+Paths inside the SystemVerilog `include` directives (`../pkg/common_pkg.sv`, `pkg/common_pkg.sv`, or `../rtl/pkg/common_pkg.sv`) assume a layout like the one below. Adjust them if your folders differ.
 
 ```
 .
-├── rtl/
-│   ├── pkg/
-│   │   └── common_pkg.sv        # alu_pkg + ctrl_pkg (types, opcodes, FSM states)
-│   ├── ALU.sv                   # Arithmetic Logic Unit
-│   ├── RF.sv                    # Register file
-│   ├── Register.sv              # Generic register with load enable (PC, IR)
-│   ├── Mux.sv                   # One-hot AND-OR muxes (2x1, 3x1, 4x1)
-│   ├── Decoder.sv               # Register address / immediate extraction
-│   ├── Extension.sv             # Load data selection + sign/zero extension
-│   ├── Data_Aligner.sv          # Store data replication (SB / SH / SW)
-│   ├── Store_Encoder.sv         # Byte write-enable generation
-│   ├── Controller.sv            # FSM + control signal generation + assertions
-│   ├── Datapath.sv              # Datapath wiring
-│   ├── CPU.sv                   # Controller + Datapath
-│   ├── memory_controller.sv     # Memory handshake FSM
-│   ├── Memory_System.sv         # memory_controller + data_sram (block RAM IP)
-│   ├── CPU_system.sv            # CPU + memory system + bus assertions
-│   └── urbana_top.sv            # FPGA top level (Urbana board)
-├── tb/
-│   ├── ALU_tb.sv
-│   ├── RF_tb.sv
-│   ├── Memory_tb.sv
-│   ├── CPU_tb.sv                # Constrained-random instruction-level testbench
-│   ├── CPU_cov.sv               # Functional coverage module
-│   └── CPU_system_tb.sv         # Runs a real program on the full system
-└── docs/
-    ├── Milestone_1.pdf … Milestone_4.pdf
-    └── Urbana_V2I1_SCH_2023-01-03.PDF   # Board schematic
+├── Firmware/
+│   ├── firmware.coe             # Memory initialization vector (compiled firmware)
+│   └── main.c                   # Bare-metal C program for system testing
+├── sim/                         # QuestaSim / ModelSim workspace & wave configs
+│   ├── wave_ALU.do
+│   ├── wave_CPU.do
+│   ├── wave_CPU_system.tcl
+│   ├── wave_Memory.tcl
+│   └── wave_RF.do
+├── src/
+│   ├── constrs/
+│   │   └── Urbana.xdc           # Physical pin and timing constraints (Spartan-7)
+│   ├── rtl/
+│   │   ├── control/
+│   │   │   └── Controller.sv    # FSM + control signal generation + assertions
+│   │   ├── cpu/
+│   │   │   └── CPU.sv           # Controller + Datapath integration
+│   │   ├── datapath/
+│   │   │   ├── ALU.sv           # Arithmetic Logic Unit
+│   │   │   ├── Data_Aligner.sv  # Store data replication (SB / SH / SW)
+│   │   │   ├── Datapath.sv      # Datapath wiring & internal pipeline registers
+│   │   │   ├── Decoder.sv       # Instruction decoding & immediate extraction
+│   │   │   ├── Extension.sv     # Load data selection + sign/zero extension
+│   │   │   ├── Mux.sv           # One-hot AND-OR multiplexers (2x1, 3x1, 4x1)
+│   │   │   ├── Register.sv      # Generic register with load enable (PC, IR)
+│   │   │   ├── RF.sv            # 32-bit Register File (32 x 32-bit)
+│   │   │   └── Store_Encoder.sv # Byte write-enable generation
+│   │   ├── mem/
+│   │   │   ├── memory_controller.sv # Memory handshake FSM
+│   │   │   ├── Memory_System.sv     # memory_controller + data_sram (BRAM IP wrapper)
+│   │   │   └── sram_init.coe        # Memory initialization COE for Block RAM
+│   │   ├── pkg/
+│   │   │   └── common_pkg.sv    # alu_pkg + ctrl_pkg (types, opcodes, FSM states)
+│   │   ├── CPU_system.sv        # CPU + memory system + bus assertions
+│   │   └── urbana_top.sv        # FPGA top level for Real Digital Urbana board
+│   └── tb/
+│       ├── ALU_tb.sv
+│       ├── CPU_cov.sv           # Functional coverage module
+│       ├── CPU_system_tb.sv     # System-level testbench executing firmware
+│       ├── CPU_tb.sv            # Constrained-random instruction-level testbench
+│       ├── Memory_tb.sv
+│       ├── Memory_tb2.sv
+│       └── RF_tb.sv
+├── vivado/                      # Vivado project outputs and IP workspace
+└── README.md
 ```
 
-> The memory subsystem instantiates `data_sram`, a **Xilinx Block Memory Generator IP** (16384 × 32 bit, byte-write enable). The IP configuration and the program initialization file are not part of the SystemVerilog sources and must be generated in Vivado.
+> The memory subsystem instantiates `data_sram`, a **Xilinx Block Memory Generator IP** (16384 × 32 bit, byte-write enable). The IP configuration is generated in Vivado and initialized using the memory configuration files (`sram_init.coe` / `firmware.coe`).
 
 ---
 
